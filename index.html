@@ -841,216 +841,266 @@ function setStatus(state) {
 /* ══════════════════════════════════════════════════════════════════
    ██  FINANCIAL MODELING PREP (FMP) — FUNDAMENTALES
    ══════════════════════════════════════════════════════════════════
-   ENDPOINTS USADOS (todos disponibles en plan GRATUITO):
 
-   1. /v3/quote/{ticker}
-      → price, changesPercentage, pe, eps, earningsAnnouncement
-      → ¡El endpoint más completo del plan free!
-      → Incluye: precio, P/E, EPS, market cap, volumen, 52w high/low
+   FMP migró todos sus endpoints a una nueva base URL /stable/ en 2025.
+   Los paths /v3/ y /v4/ son legacy y devuelven datos vacíos o errores.
+   Docs oficiales: https://site.financialmodelingprep.com/developer/docs
 
-   2. /v3/profile/{ticker}
-      → sector, country, companyName, description, website
-      → Perfil de la empresa (sector y geografía para los clusters)
+   ENDPOINTS /stable/ USADOS (plan GRATUITO):
+   ─────────────────────────────────────────────────────────────────
 
-   3. /v3/ratios-ttm/{ticker}
-      → dividendYielPercentageTTM, peRatioTTM, returnOnEquityTTM,
-        priceEarningsToGrowthRatioTTM, netProfitMarginTTM
-      → Ratios financieros de los últimos 12 meses
-      → DISPONIBLE en plan free (a diferencia de key-metrics-ttm)
+   1. /stable/quote?symbol=AAPL
+      Docs: /developer/docs/stable/quote
+      Campos útiles: price, pe, eps, marketCap, volume,
+                     yearHigh, yearLow, avgVolume, sharesOutstanding,
+                     changesPercentage (cambio % del día)
 
-   4. /v3/historical-price-full/{ticker}?from=YYYY-01-03&to=YYYY-01-07
-      → Precios históricos del inicio del año para calcular YTD
-      → Pedimos una semana entera por si el 2 de enero es feriado
+   2. /stable/profile?symbol=AAPL
+      Docs: /developer/docs/stable/profile-symbol
+      Campos útiles: sector, country, companyName, description,
+                     website, exchange, lastDiv, beta
 
-   NOTA sobre endpoints que NO funcionan en plan free:
-   - /v4/price-target-consensus → requiere plan de pago
-   - /v3/key-metrics-ttm        → requiere plan de pago
-   - /v3/analyst-estimates       → requiere plan de pago
+   3. /stable/ratios-ttm?symbol=AAPL
+      Docs: /developer/docs/stable/metrics-ratios-ttm
+      Campos útiles: peRatioTTM, returnOnEquityTTM,
+                     priceEarningsToGrowthRatioTTM,
+                     dividendYielPercentageTTM, netProfitMarginTTM,
+                     debtEquityRatioTTM, currentRatioTTM
 
-   COSTE: 4 llamadas × número de tickers
-   Con 4 tickers: 16 calls/día → muy dentro del límite de 250/día
-*/
+   4. /stable/key-metrics-ttm?symbol=AAPL
+      Docs: /developer/docs/stable/key-metrics-ttm
+      Campos útiles: roeTTM, pegRatioTTM, revenuePerShareTTM,
+                     freeCashFlowYieldTTM, dividendYieldTTM,
+                     earningsYieldTTM, priceToBookRatioTTM
+
+   5. /stable/historical-price-eod/full?symbol=AAPL&from=YYYY-01-02&to=YYYY-01-10
+      Docs: /developer/docs#chart
+      Campos útiles: historical[].close, historical[].date
+      Usado para calcular YTD (rendimiento desde el 1 de enero)
+
+   COSTE: 5 llamadas × número de tickers
+   Con 4 tickers = 20 calls/día → dentro del límite free de 250/día
+
+   NOTA: price-target-consensus y analyst-estimates requieren plan de pago.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Helper: fetch con timeout de 10s. Devuelve el JSON o null si falla.
+   Nunca lanza excepción — los errores se manejan con null. */
+async function fmpFetch(url) {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) {
+      console.warn(`[FMP] HTTP ${r.status} → ${url}`);
+      return null;
+    }
+    const json = await r.json();
+    /* FMP devuelve { "Error Message": "..." } cuando la key es inválida
+       o el endpoint requiere plan de pago */
+    if (json?.['Error Message'] || json?.error) {
+      console.warn(`[FMP] Error en respuesta:`, json?.['Error Message'] || json?.error);
+      return null;
+    }
+    return json;
+  } catch (e) {
+    console.warn(`[FMP] Timeout/red → ${url}:`, e.message);
+    return null;
+  }
+}
+
+/* Obtiene todos los fundamentales de FMP para un ticker usando los
+   endpoints /stable/ correctos según la documentación actualizada. */
 async function fetchFundamentals(ticker) {
   const key = getFmpKey();
   if (!key) return null;
 
-  const BASE = 'https://financialmodelingprep.com/api';
+  const BASE = 'https://financialmodelingprep.com/stable';
   const year = new Date().getFullYear();
-  /* Pedimos del 3 al 7 de enero para capturar el primer día hábil
-     aunque el 2 sea feriado en algunos mercados */
-  const ytdFrom = `${year}-01-03`;
-  const ytdTo   = `${year}-01-07`;
 
-  /* Función auxiliar: hace fetch y devuelve el JSON, o {} si falla */
-  const safeFetch = async (url) => {
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!r.ok) {
-        console.warn(`FMP ${r.status} para ${url}`);
-        return null;
-      }
-      return await r.json();
-    } catch (e) {
-      console.warn(`FMP timeout/error para ${url}:`, e.message);
-      return null;
-    }
-  };
+  /* Para YTD pedimos del 2 al 10 de enero: garantiza capturar
+     el primer día hábil aunque haya feriados a principio de año */
+  const ytdFrom = `${year}-01-02`;
+  const ytdTo   = `${year}-01-10`;
 
-  /* Lanzar las 4 llamadas en paralelo */
-  const [quoteRes, profileRes, ratiosRes, ytdRes] = await Promise.all([
-    safeFetch(`${BASE}/v3/quote/${ticker}?apikey=${key}`),
-    safeFetch(`${BASE}/v3/profile/${ticker}?apikey=${key}`),
-    safeFetch(`${BASE}/v3/ratios-ttm/${ticker}?apikey=${key}`),
-    safeFetch(`${BASE}/v3/historical-price-full/${ticker}?from=${ytdFrom}&to=${ytdTo}&apikey=${key}`),
+  /* Lanzar las 5 llamadas en paralelo con Promise.all */
+  const [quoteRes, profileRes, ratiosRes, metricsRes, ytdRes] = await Promise.all([
+    fmpFetch(`${BASE}/quote?symbol=${ticker}&apikey=${key}`),
+    fmpFetch(`${BASE}/profile?symbol=${ticker}&apikey=${key}`),
+    fmpFetch(`${BASE}/ratios-ttm?symbol=${ticker}&apikey=${key}`),
+    fmpFetch(`${BASE}/key-metrics-ttm?symbol=${ticker}&apikey=${key}`),
+    fmpFetch(`${BASE}/historical-price-eod/full?symbol=${ticker}&from=${ytdFrom}&to=${ytdTo}&apikey=${key}`),
   ]);
 
-  /* Extraer datos — el quote es un array, tomamos el primer elemento */
-  const quote   = Array.isArray(quoteRes)   ? (quoteRes[0]   || {}) : {};
-  const profile = Array.isArray(profileRes) ? (profileRes[0] || {}) : {};
-  const ratios  = Array.isArray(ratiosRes)  ? (ratiosRes[0]  || {}) : {};
+  /* Extraer el primer elemento de cada array (FMP siempre devuelve arrays) */
+  const quote   = Array.isArray(quoteRes)   ? (quoteRes[0]   || {}) : (quoteRes   || {});
+  const profile = Array.isArray(profileRes) ? (profileRes[0] || {}) : (profileRes || {});
+  const ratios  = Array.isArray(ratiosRes)  ? (ratiosRes[0]  || {}) : (ratiosRes  || {});
+  const metrics = Array.isArray(metricsRes) ? (metricsRes[0] || {}) : (metricsRes || {});
 
-  /* Debug: muestra en consola lo que llegó de FMP para cada ticker.
-     Abre DevTools (F12) → Console para verlo. */
-  console.group(`FMP datos para ${ticker}`);
+  /* Debug completo en consola — abre F12 → Console para ver los datos crudos */
+  console.group(`[FMP /stable/] ${ticker}`);
   console.log('quote:',   quote);
   console.log('profile:', profile);
-  console.log('ratios:',  ratios);
+  console.log('ratios-ttm:', ratios);
+  console.log('key-metrics-ttm:', metrics);
   console.log('ytd raw:', ytdRes);
   console.groupEnd();
 
-  /* YTD: tomamos el cierre más antiguo del rango (primera semana de enero)
-     como precio de referencia del inicio de año */
+  /* ── YTD ──────────────────────────────────────────────────────
+     historical-price-eod devuelve: { historical: [{date, close, ...}] }
+     Los datos vienen ordenados DESC (más reciente primero).
+     Tomamos el ÚLTIMO elemento del array = el día más antiguo del rango
+     = primer día hábil del año = precio de referencia para YTD. */
   const ytdHistory = ytdRes?.historical || [];
-  /* historical viene ordenado DESC (más reciente primero), tomamos el último */
   const ytdPrice   = ytdHistory.length > 0
-    ? ytdHistory[ytdHistory.length - 1].close
+    ? ytdHistory[ytdHistory.length - 1].close   /* precio más antiguo del rango */
     : null;
   const currentPx  = quote.price || profile.price || null;
   const ytdChange  = (ytdPrice && currentPx)
     ? ((currentPx - ytdPrice) / ytdPrice) * 100
     : null;
 
-  /* ROE viene como decimal en ratios-ttm: 0.1543 = 15.43%
-     Lo guardamos en decimal y lo multiplicamos por 100 al mostrar */
-  const roe = ratios.returnOnEquityTTM || null;
-
-  /* Dividendo: ratios-ttm trae dividendYielPercentageTTM (en %, no decimal)
-     Para calcular div/acción: yield% × precio / 100 */
-  const divYieldPct = ratios.dividendYielPercentageTTM || null;
+  /* ── DIVIDENDO ────────────────────────────────────────────────
+     ratios-ttm devuelve dividendYielPercentageTTM como porcentaje (ej: 0.52 = 0.52%)
+     Para convertir a $/acción: (yield% / 100) × precio_actual
+     profile.lastDiv es el último dividendo pagado $/acción (fuente alternativa) */
+  const divYieldPct = ratios.dividendYielPercentageTTM
+    ?? metrics.dividendYieldTTM
+    ?? null;
   const divPerShare = (divYieldPct && currentPx)
     ? (divYieldPct / 100) * currentPx
-    : (profile.lastDiv || 0);
+    : (typeof profile.lastDiv === 'number' ? profile.lastDiv : null);
+
+  /* ── ROE ──────────────────────────────────────────────────────
+     Viene como decimal en ambos endpoints: 0.1543 = 15.43%
+     Al mostrarlo multiplicamos × 100 (ver renderFundamentals) */
+  const roe = ratios.returnOnEquityTTM ?? metrics.roeTTM ?? null;
+
+  /* ── P/E y EPS ────────────────────────────────────────────────
+     Preferimos quote (más actualizado) sobre ratios-ttm */
+  const pe  = quote.pe  ?? ratios.peRatioTTM  ?? null;
+  const eps = quote.eps ?? null;
+
+  /* ── PEG ──────────────────────────────────────────────────────
+     Price/Earnings-to-Growth: < 1 suele considerarse barato */
+  const peg = ratios.priceEarningsToGrowthRatioTTM ?? metrics.pegRatioTTM ?? null;
 
   return {
-    /* Identificación */
-    sector:      profile.sector       || quote.sector || '—',
-    country:     profile.country      || '—',
-    description: profile.description  || '',
+    /* Identificación de la empresa */
+    sector:       profile.sector      || '—',
+    country:      profile.country     || '—',
+    companyName:  profile.companyName || ticker,
+    description:  profile.description || '',
+    exchange:     profile.exchangeShortName || '',
 
-    /* Precio y valoración (del quote — el más fiable en plan free) */
-    pe:          quote.pe             || ratios.peRatioTTM || null,
-    eps:         quote.eps            || null,
-    mktCap:      quote.marketCap      || null,
+    /* Valoración */
+    pe, eps, peg,
+    mktCap:       quote.marketCap     || profile.mktCap || null,
+    priceToBook:  ratios.priceToBookRatioTTM ?? metrics.priceToBookRatioTTM ?? null,
+
+    /* Rentabilidad */
+    roe,
+    netMargin:    ratios.netProfitMarginTTM ?? null,
+    roic:         metrics.returnOnInvestedCapitalTTM ?? null,
 
     /* Dividendo */
-    lastDiv:     divPerShare,
-    divYieldPct: divYieldPct,
+    lastDiv:      divPerShare,
+    divYieldPct,
 
-    /* No disponible en plan free — dejamos null */
-    targetPrice: null,
-
-    /* Ratios TTM */
-    roe:         roe,
-    peg:         ratios.priceEarningsToGrowthRatioTTM || null,
-    netMargin:   ratios.netProfitMarginTTM || null,
+    /* Precio objetivo analistas — no disponible en plan free */
+    targetPrice:  null,
 
     /* YTD */
     ytdChange,
     ytdBasePrice: ytdPrice,
 
-    /* Extra del quote útil para análisis IA */
-    yearHigh:    quote.yearHigh  || null,
-    yearLow:     quote.yearLow   || null,
-    avgVolume:   quote.avgVolume || null,
-    sharesOut:   quote.sharesOutstanding || null,
+    /* Datos de mercado del quote */
+    yearHigh:     quote.yearHigh   || null,
+    yearLow:      quote.yearLow    || null,
+    avgVolume:    quote.avgVolume  || null,
+    beta:         profile.beta     || null,
+
+    /* Free cash flow yield — disponible en key-metrics-ttm */
+    fcfYield:     metrics.freeCashFlowYieldTTM ?? null,
   };
 }
 
-/* ── PANEL DE DEBUG ──────────────────────────────────────────────
-   Muestra en la barra de estado qué datos llegaron realmente de FMP.
-   Útil para diagnosticar qué endpoints funcionan con tu plan.
-   Se oculta después de 8 segundos.
-*/
+/* Muestra en la barra de estado qué campos llegaron de FMP.
+   Verde ✓ = dato recibido | Amarillo ✗ = dato vacío (puede ser plan o endpoint) */
 function showFmpDebug(results) {
   const lines = Object.entries(results).map(([ticker, d]) => {
-    if (!d) return `${ticker}: ❌ sin datos`;
-    const items = [
-      d.sector  !== '—' ? `sector ✓` : `sector ✗`,
-      d.pe      != null ? `P/E ✓`    : `P/E ✗`,
-      d.eps     != null ? `EPS ✓`    : `EPS ✗`,
-      d.roe     != null ? `ROE ✓`    : `ROE ✗`,
-      d.peg     != null ? `PEG ✓`    : `PEG ✗`,
-      d.ytdChange != null ? `YTD ✓`  : `YTD ✗`,
+    if (!d) return `${ticker}: ❌ sin respuesta`;
+    const checks = [
+      d.sector  !== '—' ? 'sector ✓' : 'sector ✗',
+      d.pe      != null ? 'P/E ✓'    : 'P/E ✗',
+      d.eps     != null ? 'EPS ✓'    : 'EPS ✗',
+      d.roe     != null ? 'ROE ✓'    : 'ROE ✗',
+      d.peg     != null ? 'PEG ✓'    : 'PEG ✗',
+      d.ytdChange != null ? 'YTD ✓'  : 'YTD ✗',
     ];
-    return `${ticker}: ${items.join(' · ')}`;
+    return `${ticker}: ${checks.join(' · ')}`;
   });
-  const el = document.getElementById('statusText');
-  el.innerHTML = lines.map(l =>
-    l.includes('✗') ? `<span style="color:var(--accent3)">${l}</span>` : l
-  ).join(' &nbsp;|&nbsp; ');
+  document.getElementById('statusText').innerHTML = lines
+    .map(l => l.includes('✗')
+      ? `<span style="color:var(--accent3)">${l}</span>`
+      : `<span style="color:var(--accent2)">${l}</span>`)
+    .join(' &nbsp;|&nbsp; ');
 }
 
-/* Itera sobre el portafolio y llama a fetchFundamentals() para cada ticker */
+/* Obtiene fundamentales para todos los tickers del portafolio */
 async function fetchAllFundamentals() {
-  if (!getFmpKey()) { showToast('⚠ Pega tu FMP API key primero'); return; }
+  if (!getFmpKey()) { showToast('⚠ Pega tu FMP API key en el header'); return; }
 
-  /* Limpiar caché anterior para forzar datos frescos */
+  /* Forzar nueva carga limpia — eliminar caché anterior */
   fundamentals = {};
+  localStorage.removeItem('depot_fundamentals');
 
   document.getElementById('fundStatus').textContent = 'cargando...';
   document.getElementById('fundStatus').style.color = 'var(--accent3)';
-  document.getElementById('statusText').textContent = 'Conectando con FMP...';
   setStatus('cargando');
 
   const debugResults = {};
   let ok = 0;
 
-  for (const h of portfolio) {
+  for (let i = 0; i < portfolio.length; i++) {
+    const h = portfolio[i];
     document.getElementById('statusText').textContent =
-      `Obteniendo ${h.ticker} (${ok + 1}/${portfolio.length})...`;
+      `[FMP /stable/] Cargando ${h.ticker} (${i + 1}/${portfolio.length})...`;
 
     const data = await fetchFundamentals(h.ticker);
 
     if (data) {
-      fundamentals[h.ticker] = data;
+      /* Verificar que al menos sector o P/E llegaron — si ambos son vacíos,
+         probablemente la key es inválida o el ticker no existe en FMP */
+      const hasData = data.sector !== '—' || data.pe != null || data.roe != null;
+      if (hasData) {
+        fundamentals[h.ticker] = data;
+        ok++;
+      }
       debugResults[h.ticker] = data;
-      ok++;
     } else {
       debugResults[h.ticker] = null;
     }
 
-    /* 400ms entre tickers para respetar el rate limit de FMP */
-    await new Promise(r => setTimeout(r, 400));
+    /* 500ms entre tickers — respetar el rate limit de FMP */
+    if (i < portfolio.length - 1) await new Promise(r => setTimeout(r, 500));
   }
 
   save();
   const ts = new Date().toLocaleTimeString('es-ES');
   document.getElementById('fundStatus').textContent =
-    `${ok}/${portfolio.length} actualizados · ${ts}`;
+    `${ok}/${portfolio.length} con datos · ${ts}`;
   document.getElementById('fundStatus').style.color =
     ok > 0 ? 'var(--accent2)' : 'var(--danger)';
   document.getElementById('lastUpdate').textContent = ts;
   setStatus(ok > 0 ? 'live' : 'warn');
 
-  /* Mostrar diagnóstico de qué campos llegaron */
   showFmpDebug(debugResults);
-
   renderAll();
 
   if (ok === 0) {
-    showToast('⚠ FMP no devolvió datos. Verifica tu API key en la consola (F12)', 6000);
+    showToast('⚠ Sin datos de FMP. Abre F12 → Console para diagnosticar.', 7000);
   } else {
-    showToast(`✅ ${ok} tickers actualizados desde FMP`);
+    showToast(`✅ FMP: ${ok}/${portfolio.length} tickers actualizados`);
   }
 }
 
