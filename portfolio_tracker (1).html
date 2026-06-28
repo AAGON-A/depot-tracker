@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Tracker</title>
+
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║              DEPOT TRACKER — ARCHIVO ÚNICO HTML              ║
+  ╠══════════════════════════════════════════════════════════════╣
+  ║  Este archivo no necesita servidor ni instalación.           ║
+  ║  Ábrelo directamente en tu navegador con doble clic.         ║
+  ║                                                              ║
+  ║  ESTRUCTURA DEL ARCHIVO:                                     ║
+  ║  1. <head>   → Librerías externas + estilos CSS              ║
+  ║  2. <body>   → HTML de la interfaz (paneles, tabla, modal)   ║
+  ║  3. <script> → Toda la lógica JavaScript                     ║
+  ║                                                              ║
+  ║  LIBRERÍAS USADAS (cargadas desde CDN, requieren internet):  ║
+  ║  • Chart.js  → gráficos de barras y doughnut                 ║
+  ║  • SheetJS   → exportar a Excel (.xlsx)                      ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+
+<!-- Chart.js: librería para dibujar gráficos en <canvas> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<!-- SheetJS (xlsx): librería para generar archivos Excel en el navegador -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  /* ════════════════════════════════════════════════════════════
+     VARIABLES CSS — PALETA DE COLORES Y TIPOGRAFÍA
+     ════════════════════════════════════════════════════════════
+     Definidas en :root para usarlas en todo el archivo con
+     la sintaxis var(--nombre). Para cambiar colores, solo
+     modifica aquí y se aplica a toda la app automáticamente.
+  */
+  :root {
+    --bg:      #0a0e1a;   /* fondo principal (azul muy oscuro)    */
+    --surface: #111827;   /* fondo de inputs y zonas secundarias  */
+    --card:    #1a2235;   /* fondo de tarjetas y paneles          */
+    --border:  #1e2d45;   /* color de bordes y separadores        */
+    --accent:  #3b82f6;   /* azul principal — botones, badges     */
+    --accent2: #10b981;   /* verde — ganancias, estado "live"     */
+    --accent3: #f59e0b;   /* amarillo — advertencias (sin usar aún) */
+    --danger:  #ef4444;   /* rojo — pérdidas, eliminar            */
+    --text:    #e2e8f0;   /* texto principal (gris claro)         */
+    --muted:   #64748b;   /* texto secundario (gris medio)        */
+    --mono: 'JetBrains Mono', 'Fira Code', monospace; /* fuente para números */
+  }
+
+  /* Reset básico: elimina márgenes y padding por defecto del navegador */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     HEADER — barra superior fija
+     position: sticky + top:0 hace que se quede al hacer scroll
+  */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100; /* encima de todo el contenido */
+  }
+  .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); } /* el punto azul en "depot." */
+  .header-actions { display: flex; gap: 10px; }
+
+  /* ════════════════════════════════════════════════════════════
+     BOTONES — sistema de variantes
+     Todos comparten la clase .btn; se añade una variante de color.
+     Para añadir un nuevo botón, usa: class="btn btn-primary btn-sm"
+  */
+  .btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.15s; /* animación suave al hover */
+  }
+  .btn-primary   { background: var(--accent);  color: white; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-green     { background: var(--accent2); color: white; }
+  .btn-green:hover { background: #059669; }
+  .btn-sm        { padding: 6px 12px; font-size: 12px; } /* versión compacta */
+
+  /* ════════════════════════════════════════════════════════════
+     LAYOUT PRINCIPAL
+     max-width limita el ancho en pantallas grandes.
+     margin:0 auto centra el contenido.
+  */
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 24px; }
+
+  /* ════════════════════════════════════════════════════════════
+     BARRA DE ESTADO — muestra si los precios son live o demo
+  */
+  .status-bar {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    font-size: 13px;
+  }
+  /* Punto de estado: gris por defecto, verde pulsante cuando hay datos live */
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status-dot.live {
+    background: var(--accent2);
+    box-shadow: 0 0 8px var(--accent2); /* halo verde */
+    animation: pulse 2s infinite;
+  }
+  /* Animación del punto live: alterna opacidad para efecto "latido" */
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* ════════════════════════════════════════════════════════════
+     KPI CARDS — 4 tarjetas de métricas en fila
+     repeat(4, 1fr) = 4 columnas de igual ancho
+     En móvil (<900px) cambia a 2 columnas (ver @media al final)
+  */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 8px; }
+  .kpi-value { font-size: 28px; font-weight: 700; font-family: var(--mono); letter-spacing: -1px; }
+  .kpi-sub   { font-size: 12px; margin-top: 4px; }
+
+  /* Clases de color para valores positivos/negativos — usadas en JS */
+  .pos { color: var(--accent2); } /* verde */
+  .neg { color: var(--danger);  } /* rojo  */
+
+  /* ════════════════════════════════════════════════════════════
+     GRIDS DE 2 Y 3 COLUMNAS para organizar paneles
+     grid-3 usa proporción 2:1 (tabla más ancha que alertas)
+  */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr;  gap: 20px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+
+  /* ════════════════════════════════════════════════════════════
+     PANEL — contenedor genérico de secciones
+  */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 16px;
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     TABLA DE POSICIONES
+     border-collapse: collapse elimina el doble borde entre celdas
+  */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    color: var(--muted); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 12px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  tbody tr:hover { background: rgba(59,130,246,0.05); } /* resaltado sutil al pasar el ratón */
+  td { padding: 12px 12px; vertical-align: middle; }
+  td:not(:first-child) { font-family: var(--mono); } /* números en fuente monoespaciada */
+
+  /* Badge azul para el ticker (ej: "AAPL") */
+  .ticker-badge {
+    background: rgba(59,130,246,0.12);
+    color: var(--accent);
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  /* Barra de progreso mini para mostrar el peso de cada posición */
+  .bar-wrap { background: var(--border); border-radius: 4px; height: 4px; width: 80px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .bar-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+
+  /* ════════════════════════════════════════════════════════════
+     SECCIÓN DE ALERTAS
+  */
+  .alert-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+  .alert-row input, .alert-row select {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 8px 12px; font-size: 13px; flex: 1; min-width: 100px;
+  }
+  .alert-row input:focus, .alert-row select:focus { outline: none; border-color: var(--accent); }
+  .alert-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; margin-bottom: 6px;
+  }
+  .alert-item .del { cursor: pointer; color: var(--danger); font-size: 16px; }
+
+  /* ════════════════════════════════════════════════════════════
+     PANEL DE ANÁLISIS IA
+     white-space: pre-wrap respeta saltos de línea del texto de Claude
+  */
+  .ai-output {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    font-size: 13px; line-height: 1.75; color: var(--text);
+    min-height: 120px; max-height: 400px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .ai-output .thinking { color: var(--muted); font-style: italic; }
+  .ai-output .label    { color: var(--accent); font-weight: 700; }
+
+  /* ════════════════════════════════════════════════════════════
+     MODAL — ventana emergente para añadir posiciones
+     Por defecto oculto (display:none).
+     Al añadir la clase .open cambia a display:flex y aparece.
+  */
+  .modal-bg {
+    position: fixed; inset: 0; /* ocupa toda la pantalla */
+    background: rgba(0,0,0,0.7); /* fondo oscuro semitransparente */
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; /* encima de todo */
+  }
+  .modal-bg.open { display: flex; } /* clase que activa el modal */
+  .modal {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 28px; width: 480px; max-width: 95vw;
+  }
+  .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+  .form-group input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px;
+  }
+  .form-group input:focus { outline: none; border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+
+  /* Contenedor de gráficos — height fijo para que Chart.js funcione bien */
+  .chart-wrap { position: relative; height: 240px; }
+
+  /* ════════════════════════════════════════════════════════════
+     TOAST — notificación temporal en esquina inferior derecha
+     Empieza fuera de pantalla (translateY 100px) y con opacidad 0.
+     La clase .show lo desliza a su posición visible.
+  */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--card); border: 1px solid var(--accent2);
+    border-radius: 10px; padding: 14px 20px;
+    font-size: 13px; color: var(--text);
+    transform: translateY(100px); opacity: 0; transition: all 0.3s;
+    z-index: 9999; max-width: 320px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+
+  /* ════════════════════════════════════════════════════════════
+     RESPONSIVE — ajustes para pantallas pequeñas (<900px)
+  */
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); } /* 2 KPIs por fila */
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }    /* columna única */
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════
+     HEADER — barra fija superior con logo y botones de acción
+     Cada botón llama a una función JavaScript definida más abajo.
+-->
+<header>
+  <div class="logo">depot<span>.</span>tracker</div>
+  <div class="header-actions">
+    <!-- Abre el modal para añadir una nueva acción/ETF -->
+    <button class="btn btn-secondary btn-sm" onclick="openModal()">+ Posición</button>
+    <!-- Llama a Yahoo Finance para actualizar todos los precios -->
+    <button class="btn btn-secondary btn-sm" onclick="refreshAll()">↻ Actualizar</button>
+    <!-- Genera y descarga un archivo .xlsx con los datos actuales -->
+    <button class="btn btn-green btn-sm" onclick="exportExcel()">⬇ Excel</button>
+    <!-- Envía los datos del portafolio a la API de Claude para análisis -->
+    <button class="btn btn-primary btn-sm" onclick="runAIAnalysis()">✦ Análisis IA</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ════════════════════════════════════════════════════════
+       BARRA DE ESTADO
+       El punto (#statusDot) cambia de clase con JS para animar.
+       El texto (#statusText) y la hora (#lastUpdate) se actualizan con JS.
+  -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Listo. Pulsa "Actualizar" para cargar precios vía Yahoo Finance.</span>
+    <span style="margin-left:auto;color:var(--muted);font-size:12px" id="lastUpdate"></span>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       KPI CARDS — 4 métricas principales
+       Los valores se rellenan dinámicamente con JS (renderKPIs()).
+       Los id son los puntos de anclaje que usa JavaScript.
+  -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Valor Total</div>
+      <div class="kpi-value" id="kpiTotal">—</div>    <!-- Precio actual × acciones de todo -->
+      <div class="kpi-sub"   id="kpiTotalSub"></div>   <!-- Subtítulo: cuánto invertiste -->
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Ganancia / Pérdida</div>
+      <div class="kpi-value" id="kpiPnl">—</div>       <!-- P&L total en $ -->
+      <div class="kpi-sub"   id="kpiPnlSub"></div>     <!-- P&L total en % -->
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Mejor Posición</div>
+      <div class="kpi-value" id="kpiBest">—</div>      <!-- Ticker con mayor % ganancia -->
+      <div class="kpi-sub"   id="kpiBestSub"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Peor Posición</div>
+      <div class="kpi-value" id="kpiWorst">—</div>     <!-- Ticker con menor % (o mayor pérdida) -->
+      <div class="kpi-sub"   id="kpiWorstSub"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       GRÁFICOS — 2 columnas iguales
+       <canvas> es el elemento HTML donde Chart.js dibuja.
+       El JS accede a ellos por id y los rellena en renderCharts().
+  -->
+  <div class="grid-2" style="margin-bottom:20px">
+    <div class="panel">
+      <div class="panel-title">Rendimiento del día (%)</div>
+      <div class="chart-wrap">
+        <canvas id="chartBar"></canvas>  <!-- Gráfico de barras: cambio % del día por ticker -->
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Distribución del portafolio</div>
+      <div class="chart-wrap">
+        <canvas id="chartDoughnut"></canvas>  <!-- Gráfico de dona: peso de cada posición en $ -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       TABLA DE POSICIONES + PANEL DE ALERTAS
+       grid-3 = 2/3 para la tabla, 1/3 para alertas
+  -->
+  <div class="grid-3">
+
+    <!-- TABLA: el <tbody id="holdingsBody"> se rellena con JS en renderTable() -->
+    <div class="panel">
+      <div class="panel-title">Posiciones</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th>   <!-- símbolo bursátil, ej: AAPL -->
+            <th>Acciones</th> <!-- cantidad de acciones que posees -->
+            <th>Precio</th>   <!-- precio actual de mercado -->
+            <th>Valor</th>    <!-- precio × acciones -->
+            <th>Hoy %</th>    <!-- cambio porcentual del día -->
+            <th>P&L</th>      <!-- ganancia/pérdida vs costo base -->
+            <th>Peso</th>     <!-- porcentaje del portafolio total -->
+            <th></th>         <!-- columna del botón eliminar (×) -->
+          </tr>
+        </thead>
+        <tbody id="holdingsBody">
+          <!-- Filas generadas dinámicamente por renderTable() -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PANEL DE ALERTAS -->
+    <div class="panel">
+      <div class="panel-title">Alertas de precio</div>
+
+      <!-- Formulario para crear una nueva alerta -->
+      <div class="alert-row">
+        <!-- Desplegable de tickers — se rellena con populateAlertTicker() -->
+        <select id="alertTicker"></select>
+
+        <!-- Tipo de alerta: por encima o por debajo del precio -->
+        <select id="alertType" style="flex:0.6">
+          <option value="above">↑ Sobre</option>
+          <option value="below">↓ Bajo</option>
+        </select>
+
+        <!-- Precio objetivo de la alerta -->
+        <input type="number" id="alertPrice" placeholder="Precio $" style="flex:0.7">
+
+        <button class="btn btn-secondary btn-sm" onclick="addAlert()">Añadir</button>
+      </div>
+
+      <!-- Lista de alertas activas — generada por renderAlerts() -->
+      <div id="alertsList"></div>
+
+      <!-- Sub-sección: configuración de email/webhook para alertas externas -->
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="panel-title" style="margin-bottom:10px">Email de alertas</div>
+        <input type="email" id="emailInput" placeholder="tu@email.com"
+          style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;margin-bottom:8px">
+        <div style="font-size:11px;color:var(--muted);line-height:1.5">
+          Las alertas se disparan en el navegador. Para email real usa <strong>Make.com</strong> o <strong>n8n</strong> con el webhook generado abajo.
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <!-- Genera una URL de webhook ficticia para copiar en Make.com/n8n -->
+          <button class="btn btn-secondary btn-sm" onclick="generateWebhook()" style="font-size:11px">Generar webhook</button>
+          <!-- Simula una alerta de prueba -->
+          <button class="btn btn-secondary btn-sm" onclick="testAlert()" style="font-size:11px">Probar alerta</button>
+        </div>
+        <!-- Aquí se muestra la URL del webhook generado -->
+        <div id="webhookOut" style="font-size:11px;color:var(--accent);margin-top:8px;word-break:break-all"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       PANEL DE ANÁLISIS IA
+       El <select> cambia el tipo de prompt que se envía a Claude.
+       La respuesta se renderiza en #aiOutput con formato HTML.
+  -->
+  <div class="panel" style="margin-top:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="panel-title" style="margin:0">✦ Análisis de IA — Claude</div>
+      <div style="display:flex;gap:8px">
+        <!-- Selector del tipo de análisis que se pedirá a Claude -->
+        <select id="aiPromptSelect" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 10px;font-size:12px">
+          <option value="general">Análisis general</option>
+          <option value="risk">Evaluación de riesgo</option>
+          <option value="rebalance">Recomendación rebalanceo</option>
+          <option value="macro">Contexto macroeconómico</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="runAIAnalysis()">Analizar</button>
+      </div>
+    </div>
+    <!-- El texto de Claude aparece aquí, renderizado con HTML -->
+    <div class="ai-output" id="aiOutput">
+      <span class="thinking">El análisis aparecerá aquí. Actualiza los precios primero y luego pulsa "Analizar".</span>
+    </div>
+  </div>
+
+</main>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — ventana emergente para añadir una posición
+     Se activa añadiendo la clase "open" con JS (openModal()).
+     Se cierra quitando esa clase (closeModal()).
+-->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>➕ Nueva posición</h3>
+    <div class="form-group">
+      <label>Ticker (ej: AAPL, NVDA, VOO)</label>
+      <!-- text-transform:uppercase convierte a mayúsculas mientras escribes -->
+      <input type="text" id="mTicker" placeholder="AAPL" style="text-transform:uppercase">
+    </div>
+    <div class="form-group">
+      <label>Número de acciones</label>
+      <input type="number" id="mShares" placeholder="10">
+    </div>
+    <div class="form-group">
+      <label>Precio de compra promedio (USD)</label>
+      <input type="number" id="mCost" placeholder="150.00" step="0.01">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary"   onclick="addHolding()">Añadir</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Contenedor del toast/notificación — JS le añade/quita la clase "show" -->
+<div id="toast"></div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     JAVASCRIPT — TODA LA LÓGICA DE LA APLICACIÓN
+     ════════════════════════════════════════════════════════════════════
+     Secciones:
+       1. ESTADO GLOBAL     → variables y persistencia en localStorage
+       2. YAHOO FINANCE     → fetch de precios con proxies CORS
+       3. REFRESH ALL       → actualizar todos los tickers
+       4. RENDER ALL        → re-dibujar toda la interfaz
+       5. KPIs              → calcular y mostrar métricas
+       6. TABLA             → renderizar filas de posiciones
+       7. GRÁFICOS          → crear/actualizar Chart.js
+       8. ALERTAS           → crear, chequear y eliminar alertas
+       9. MODAL             → abrir/cerrar y añadir holding
+      10. EXPORT EXCEL      → generar .xlsx con SheetJS
+      11. ANÁLISIS IA       → llamar a la API de Claude
+      12. TOAST             → notificaciones temporales
+      13. INIT              → arranque inicial de la app
+-->
+<script>
+
+/* ════════════════════════════════════════════════════════════
+   1. ESTADO GLOBAL
+   ════════════════════════════════════════════════════════════
+   `portfolio` es el array principal. Cada objeto representa una posición:
+   {
+     ticker:    string  → símbolo bursátil, ej: "AAPL"
+     shares:    number  → cuántas acciones posees
+     costBasis: number  → precio al que compraste (promedio)
+     price:     number|null → precio actual (null hasta hacer fetch)
+     change:    number|null → cambio % del día (null hasta hacer fetch)
+   }
+
+   Se guarda en localStorage del navegador con la clave 'depot_portfolio'.
+   Al recargar la página, se recupera automáticamente.
+   Si no hay nada guardado, se usa el portafolio de ejemplo.
+
+   Para cambiar las acciones de ejemplo, edita el array aquí abajo.
+*/
+let portfolio = JSON.parse(localStorage.getItem('depot_portfolio') || 'null') || [
+  { ticker: 'AAPL',  shares: 10, costBasis: 150.00, price: null, change: null },
+  { ticker: 'MSFT',  shares: 5,  costBasis: 280.00, price: null, change: null },
+  { ticker: 'NVDA',  shares: 8,  costBasis: 420.00, price: null, change: null },
+  { ticker: 'SPY',   shares: 3,  costBasis: 430.00, price: null, change: null },
+];
+
+/* `alerts` es el array de alertas de precio:
+   { ticker: "AAPL", type: "above"|"below", price: 200, triggered: false }
+*/
+let alerts = JSON.parse(localStorage.getItem('depot_alerts') || '[]');
+
+/* Referencias a los objetos Chart.js — necesitamos guardarlas para
+   destruirlas antes de redibujar (si no, se acumulan en memoria) */
+let chartBar, chartDoughnut;
+
+/* Paleta de colores para los gráficos. Añade más si tienes >8 posiciones. */
+const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316','#84cc16'];
+
+/* Guarda el estado actual en localStorage del navegador.
+   Se llama después de cualquier cambio en `portfolio` o `alerts`. */
+function save() {
+  localStorage.setItem('depot_portfolio', JSON.stringify(portfolio));
+  localStorage.setItem('depot_alerts',   JSON.stringify(alerts));
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   2. YAHOO FINANCE — obtener precio de un ticker
+   ════════════════════════════════════════════════════════════
+   Yahoo Finance no permite llamadas directas desde el navegador
+   por restricciones CORS (política de seguridad del navegador).
+   Solución: usar un proxy público que reenvía la petición.
+
+   Intentamos dos proxies en orden. Si ambos fallan, devolvemos null
+   y la app cae a precios demo.
+
+   Para cambiar la fuente de datos, reemplaza esta función.
+   Parámetro:  ticker → string, ej: "AAPL"
+   Devuelve:   { price: number, change: number } o null si falla
+*/
+async function fetchPrice(ticker) {
+  // URL de la API de Yahoo Finance para 2 días (ayer + hoy)
+  // interval=1d → velas diarias | range=2d → últimos 2 días
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
+
+  // Lista de proxies CORS públicos — si uno falla, prueba el siguiente
+  // Para añadir un proxy propio: url => `https://tu-proxy.com/?url=${encodeURIComponent(url)}`
+  const proxies = [
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
+
+  for (const proxy of proxies) {
+    try {
+      // AbortSignal.timeout(8000) cancela la petición si tarda más de 8 segundos
+      const response = await fetch(proxy(yahooUrl), { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) continue; // HTTP 4xx o 5xx → prueba el siguiente proxy
+
+      const data = await response.json();
+
+      // Navegar la estructura de respuesta de Yahoo Finance:
+      // data.chart.result[0].meta contiene los metadatos del precio
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (!meta) continue; // respuesta rara → prueba siguiente proxy
+
+      const price = meta.regularMarketPrice;                      // precio actual
+      const prev  = meta.previousClose || meta.chartPreviousClose; // cierre anterior
+      // Calcular cambio porcentual: ((precio_actual - precio_ayer) / precio_ayer) * 100
+      const change = prev ? ((price - prev) / prev) * 100 : 0;
+
+      return { price, change }; // ¡éxito! devuelve los datos
+
+    } catch (e) {
+      // Si hay error de red o timeout, el catch lo captura y prueba el siguiente proxy
+      // No hacemos nada aquí intencionalmente (el bucle continúa)
+    }
+  }
+
+  return null; // todos los proxies fallaron
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   3. REFRESH ALL — actualizar todos los tickers
+   ════════════════════════════════════════════════════════════
+   Llama a fetchPrice() para cada holding del portafolio en secuencia.
+   (No en paralelo para no saturar los proxies públicos)
+
+   Si ningún ticker se pudo actualizar, cae a precios demo.
+   Al terminar: comprueba alertas y redibuja toda la interfaz.
+*/
+async function refreshAll() {
+  setStatus('cargando');
+  document.getElementById('statusText').textContent = 'Obteniendo precios de Yahoo Finance...';
+
+  let ok = 0; // contador de tickers actualizados con éxito
+
+  // Recorremos cada posición del portafolio
+  for (const h of portfolio) {
+    const result = await fetchPrice(h.ticker);
+    if (result) {
+      h.price  = result.price;   // precio actual de mercado
+      h.change = result.change;  // cambio % del día
+      ok++;
+    }
+    // Si result es null, h.price y h.change quedan como estaban (null o el valor anterior)
+  }
+
+  save(); // persistir los nuevos precios en localStorage
+
+  if (ok === 0) {
+    // Ningún ticker se pudo actualizar → usar precios demo para no mostrar vacío
+    setStatus('error');
+    document.getElementById('statusText').textContent = 'No se pudo conectar. Usando precios de demo.';
+    useDemoPrices();
+  } else {
+    setStatus('live');
+    document.getElementById('statusText').textContent = `${ok}/${portfolio.length} precios actualizados vía Yahoo Finance`;
+    document.getElementById('lastUpdate').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-ES');
+  }
+
+  checkAlerts(); // ver si alguna alerta debe dispararse con los nuevos precios
+  renderAll();   // redibujar toda la interfaz
+}
+
+/* Precios de respaldo cuando Yahoo Finance no está disponible.
+   CÓMO MODIFICAR: añade o cambia los valores en los objetos demo/demoChg.
+   Para tickers no incluidos, genera un precio aleatorio entre 100-500.
+*/
+function useDemoPrices() {
+  const demo    = { AAPL:189.30, MSFT:415.20, NVDA:875.40, SPY:540.10, GOOGL:175.80, AMZN:188.50, TSLA:247.60, META:520.30 };
+  const demoChg = { AAPL:0.82,  MSFT:-0.34,  NVDA:2.15,   SPY:0.44,   GOOGL:0.61,   AMZN:-0.28,  TSLA:3.10,   META:1.02   };
+  portfolio.forEach(h => {
+    h.price  = demo[h.ticker]    || (100 + Math.random() * 400); // precio aleatorio si no está en demo
+    h.change = demoChg[h.ticker] || ((Math.random() - 0.5) * 4); // cambio aleatorio ±2%
+  });
+  save();
+}
+
+/* Cambia el aspecto del punto de estado en la barra superior.
+   state: 'live' → verde pulsante | cualquier otro → gris estático */
+function setStatus(state) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status-dot' + (state === 'live' ? ' live' : '');
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   4. RENDER ALL — punto de entrada para redibujar la UI
+   ════════════════════════════════════════════════════════════
+   Llama a todas las funciones de renderizado en orden.
+   Úsala siempre que el estado cambie (nuevo holding, precio actualizado, etc.)
+*/
+function renderAll() {
+  renderKPIs();          // actualiza las 4 tarjetas de métricas
+  renderTable();         // regenera las filas de la tabla
+  renderCharts();        // destruye y recrea los gráficos Chart.js
+  renderAlerts();        // muestra la lista de alertas activas
+  populateAlertTicker(); // sincroniza el desplegable de alertas con los tickers actuales
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   5. HELPERS DE FORMATO Y CÁLCULO
+   ════════════════════════════════════════════════════════════ */
+
+/* Formatea un número con separadores alemanes (punto = miles, coma = decimales)
+   Ej: fmt(12345.6789, 2) → "12.345,68"
+   Para cambiar a formato español/inglés, cambia 'de-DE' por 'es-ES' o 'en-US' */
+function fmt(n, dec = 2) {
+  return n != null
+    ? n.toLocaleString('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+    : '—'; // devuelve guión si el valor es null/undefined
+}
+
+/* Añade el símbolo $ al formato numérico. Ej: fmtUSD(1234.5) → "$1.234,50" */
+function fmtUSD(n) {
+  return n != null ? '$' + fmt(n) : '—';
+}
+
+/* Calcula todos los valores derivados del portafolio.
+   Devuelve un objeto con:
+   - items:        array enriquecido con value, cost, pnl, pnlPct por posición
+   - totalValue:   valor total de mercado del portafolio
+   - totalCost:    cuánto invertiste en total (costBasis × shares sumado)
+   - totalPnl:     ganancia/pérdida en $ (totalValue - totalCost)
+   - totalPnlPct:  ganancia/pérdida en %
+*/
+function calcTotals() {
+  let totalValue = 0, totalCost = 0;
+
+  const items = portfolio.map(h => {
+    // Si tenemos precio de mercado, usarlo. Si no, usar el costo base (P&L = 0)
+    const v = h.price != null ? h.price * h.shares : h.costBasis * h.shares;
+    const c = h.costBasis * h.shares;
+
+    totalValue += v;
+    totalCost  += c;
+
+    return {
+      ...h,          // copia todos los campos del holding (ticker, shares, etc.)
+      value:  v,     // valor actual en $
+      cost:   c,     // costo total de compra en $
+      pnl:    v - c, // ganancia/pérdida en $
+      pnlPct: ((v - c) / c) * 100, // ganancia/pérdida en %
+    };
+  });
+
+  return {
+    items,
+    totalValue,
+    totalCost,
+    totalPnl:    totalValue - totalCost,
+    totalPnlPct: ((totalValue - totalCost) / totalCost) * 100,
+  };
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   5. RENDERIZAR KPI CARDS
+   ════════════════════════════════════════════════════════════
+   Actualiza el contenido de las 4 tarjetas superiores usando
+   los id definidos en el HTML (kpiTotal, kpiPnl, kpiBest, kpiWorst).
+*/
+function renderKPIs() {
+  const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
+
+  // Tarjeta 1: Valor Total
+  document.getElementById('kpiTotal').textContent = fmtUSD(totalValue);
+  const cls = totalPnl >= 0 ? 'pos' : 'neg'; // verde si ganancia, rojo si pérdida
+  document.getElementById('kpiTotalSub').innerHTML = `<span class="${cls}">Invertido: ${fmtUSD(totalCost)}</span>`;
+
+  // Tarjeta 2: P&L total
+  document.getElementById('kpiPnl').innerHTML    = `<span class="${cls}">${totalPnl >= 0 ? '+' : ''}${fmtUSD(totalPnl)}</span>`;
+  document.getElementById('kpiPnlSub').innerHTML = `<span class="${cls}">${totalPnlPct >= 0 ? '+' : ''}${fmt(totalPnlPct)}%</span>`;
+
+  // Tarjetas 3 y 4: mejor y peor posición (ordenadas por pnlPct)
+  const sorted = [...items].sort((a, b) => b.pnlPct - a.pnlPct);
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+
+  if (best && best.price) {
+    document.getElementById('kpiBest').innerHTML    = `<span class="pos">${best.ticker}</span>`;
+    document.getElementById('kpiBestSub').innerHTML = `<span class="pos">+${fmt(best.pnlPct)}%</span>`;
+  }
+  if (worst && worst.price) {
+    const wCls = worst.pnlPct < 0 ? 'neg' : 'pos';
+    document.getElementById('kpiWorst').innerHTML    = `<span class="${wCls}">${worst.ticker}</span>`;
+    document.getElementById('kpiWorstSub').innerHTML = `<span class="${wCls}">${worst.pnlPct >= 0 ? '+' : ''}${fmt(worst.pnlPct)}%</span>`;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   6. RENDERIZAR TABLA DE POSICIONES
+   ════════════════════════════════════════════════════════════
+   Regenera todo el innerHTML de <tbody id="holdingsBody">.
+   Cada fila tiene: ticker badge, shares, precio, valor, cambio día,
+   P&L, barra de peso, y botón eliminar.
+
+   CÓMO AÑADIR UNA COLUMNA:
+   1. Añade un <th> en el HTML (en el <thead>)
+   2. Añade un <td> en el template literal de aquí abajo
+*/
+function renderTable() {
+  const { items, totalValue } = calcTotals();
+  const body = document.getElementById('holdingsBody');
+  body.innerHTML = ''; // limpiar filas anteriores
+
+  items.forEach((h, i) => {
+    // Peso = porcentaje del valor total que representa esta posición
+    const w = totalValue > 0 ? (h.value / totalValue * 100) : 0;
+
+    // Cambio del día: verde si positivo, rojo si negativo
+    const dayChg = h.change != null
+      ? `<span class="${h.change >= 0 ? 'pos' : 'neg'}">${h.change >= 0 ? '+' : ''}${fmt(h.change)}%</span>`
+      : '—'; // si no hay precio, mostrar guión
+
+    const pnlCls = h.pnlPct >= 0 ? 'pos' : 'neg';
+
+    // Construimos la fila como template literal HTML
+    body.innerHTML += `<tr>
+      <td><span class="ticker-badge">${h.ticker}</span></td>
+      <td>${fmt(h.shares, 0)}</td>
+      <td>${h.price != null ? fmtUSD(h.price) : fmtUSD(h.costBasis)}</td>
+      <td>${fmtUSD(h.value)}</td>
+      <td>${dayChg}</td>
+      <td><span class="${pnlCls}">${h.pnlPct >= 0 ? '+' : ''}${fmt(h.pnlPct)}%</span></td>
+      <td>
+        <span style="color:var(--muted);font-size:12px">${fmt(w, 1)}%</span>
+        <!-- Barra mini de peso: el ancho se calcula como porcentaje, color por índice -->
+        <span class="bar-wrap">
+          <span class="bar-fill" style="width:${Math.min(w, 100)}%;background:${COLORS[i % COLORS.length]}"></span>
+        </span>
+      </td>
+      <!-- El índice i se pasa a removeHolding() para saber qué fila eliminar -->
+      <td><span style="cursor:pointer;color:var(--muted);font-size:16px" onclick="removeHolding(${i})">×</span></td>
+    </tr>`;
+  });
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   7. GRÁFICOS — Chart.js
+   ════════════════════════════════════════════════════════════
+   Destruimos los gráficos anteriores antes de crear nuevos.
+   Esto es necesario porque Chart.js no permite reusar un canvas
+   sin destruir el gráfico previo.
+
+   GRÁFICO DE BARRAS (chartBar):
+   - Eje X: tickers
+   - Eje Y: cambio % del día
+   - Barras verdes si positivo, rojas si negativo
+
+   GRÁFICO DE DONA (chartDoughnut):
+   - Cada segmento = una posición
+   - Tamaño proporcional al valor en $
+*/
+function renderCharts() {
+  const { items } = calcTotals();
+
+  const labels     = items.map(h => h.ticker);
+  const dayChanges = items.map(h => h.change != null ? +h.change.toFixed(2) : 0);
+  const values     = items.map(h => +(h.value).toFixed(2));
+  const colors     = items.map((_, i) => COLORS[i % COLORS.length]);
+
+  // Destruir gráficos anteriores para evitar duplicados en memoria
+  if (chartBar)      chartBar.destroy();
+  if (chartDoughnut) chartDoughnut.destroy();
+
+  // ── GRÁFICO DE BARRAS ──────────────────────────────────────
+  const barCtx = document.getElementById('chartBar').getContext('2d');
+  chartBar = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: dayChanges,
+        // Color condicional: verde para positivo, rojo para negativo
+        backgroundColor: dayChanges.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
+        borderRadius: 6,
+        borderSkipped: false, // redondear también la base de la barra
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false, // necesario para que respete el height del .chart-wrap
+      plugins: {
+        legend: { display: false } // sin leyenda en el gráfico de barras (los ejes bastan)
+      },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } },
+        y: {
+          ticks: { color: '#64748b', callback: v => v + '%' }, // añade % a las etiquetas del eje Y
+          grid: { color: '#1e2d45' }
+        }
+      }
+    }
+  });
+
+  // ── GRÁFICO DE DONA ────────────────────────────────────────
+  const doCtx = document.getElementById('chartDoughnut').getContext('2d');
+  chartDoughnut = new Chart(doCtx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: '#1a2235' // color del hueco entre segmentos (igual al fondo del card)
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#e2e8f0', font: { size: 12 }, padding: 12 }
+        },
+        tooltip: {
+          callbacks: {
+            // Personaliza el texto del tooltip al hover
+            label: ctx => ` ${ctx.label}: $${ctx.parsed.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+          }
+        }
+      },
+      cutout: '65%' // porcentaje del hueco central de la dona. 0% = gráfico de tarta completo
+    }
+  });
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   8. ALERTAS DE PRECIO
+   ════════════════════════════════════════════════════════════
+   Las alertas se guardan en el array `alerts` y en localStorage.
+   Se comprueban cada vez que se actualizan los precios (en refreshAll).
+
+   Estructura de una alerta:
+   { ticker: "AAPL", type: "above"|"below", price: 200, triggered: false }
+
+   Una alerta triggered no vuelve a dispararse (hay que eliminarla y recrearla).
+*/
+
+/* Rellena el <select id="alertTicker"> con los tickers actuales del portafolio */
+function populateAlertTicker() {
+  const sel = document.getElementById('alertTicker');
+  sel.innerHTML = portfolio.map(h => `<option>${h.ticker}</option>`).join('');
+}
+
+/* Lee los inputs del formulario de alertas y añade una nueva al array */
+function addAlert() {
+  const ticker = document.getElementById('alertTicker').value;
+  const type   = document.getElementById('alertType').value;   // "above" o "below"
+  const price  = parseFloat(document.getElementById('alertPrice').value);
+
+  if (!ticker || isNaN(price)) { showToast('Completa todos los campos.'); return; }
+
+  alerts.push({ ticker, type, price, triggered: false });
+  save();
+  renderAlerts();
+  document.getElementById('alertPrice').value = ''; // limpiar el input de precio
+  showToast(`Alerta creada: ${ticker} ${type === 'above' ? '↑' : '↓'} $${price}`);
+}
+
+/* Regenera la lista visual de alertas en el panel */
+function renderAlerts() {
+  const el = document.getElementById('alertsList');
+  if (!alerts.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 0">Sin alertas activas.</div>';
+    return;
+  }
+  el.innerHTML = alerts.map((a, i) => `
+    <div class="alert-item">
+      <span>
+        <strong>${a.ticker}</strong>
+        ${a.type === 'above' ? '↑' : '↓'}
+        <span style="color:var(--accent)">$${a.price}</span>
+        ${a.triggered ? ' <span style="color:var(--accent2);font-size:11px">✓ DISPARADA</span>' : ''}
+      </span>
+      <!-- El índice i identifica qué alerta eliminar -->
+      <span class="del" onclick="removeAlert(${i})">×</span>
+    </div>`).join('');
+}
+
+/* Elimina una alerta por su índice en el array */
+function removeAlert(i) {
+  alerts.splice(i, 1);
+  save();
+  renderAlerts();
+}
+
+/* Comprueba si alguna alerta debe dispararse con los precios actuales.
+   Se llama automáticamente después de cada refreshAll().
+   Una alerta solo se dispara una vez (triggered = true la desactiva). */
+function checkAlerts() {
+  alerts.forEach(a => {
+    const h = portfolio.find(p => p.ticker === a.ticker); // buscar el holding del ticker
+    if (!h || h.price == null || a.triggered) return;    // skip si no hay precio o ya disparada
+
+    const fired =
+      (a.type === 'above' && h.price >= a.price) ||  // precio subió sobre el objetivo
+      (a.type === 'below' && h.price <= a.price);    // precio bajó bajo el objetivo
+
+    if (fired) {
+      a.triggered = true;
+      // Notificación en el navegador
+      showToast(`🔔 ALERTA: ${a.ticker} ${a.type === 'above' ? 'superó' : 'bajó de'} $${a.price} (actual: $${h.price.toFixed(2)})`, 6000);
+      // EXTENSIÓN: aquí podrías hacer fetch() a tu webhook de Make.com/n8n para enviar email
+    }
+  });
+  save();
+  renderAlerts(); // refrescar la UI para mostrar el badge "DISPARADA"
+}
+
+/* Simula el envío de una alerta de prueba (muestra el toast) */
+function testAlert() {
+  const email = document.getElementById('emailInput').value;
+  showToast(email
+    ? `✉ Alerta de prueba → ${email} (requiere webhook)`
+    : '🔔 Alerta de prueba activada (añade email para activar envío)');
+}
+
+/* Genera una URL de webhook de ejemplo para conectar con Make.com o n8n.
+   CÓMO USAR:
+   1. Pulsa "Generar webhook"
+   2. Copia la URL generada
+   3. En Make.com: crea un escenario → módulo "Webhooks" → "Custom webhook" → pega la URL
+   4. En el código, reemplaza showToast() en checkAlerts() por un fetch() a esa URL
+*/
+function generateWebhook() {
+  const id = Math.random().toString(36).slice(2, 10); // ID aleatorio de 8 caracteres
+  document.getElementById('webhookOut').textContent =
+    `https://hook.make.com/depot-${id} — Copia en Make.com → Webhooks → Custom webhook → POST`;
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   9. MODAL — añadir y eliminar holdings
+   ════════════════════════════════════════════════════════════ */
+
+/* Abre el modal añadiendo la clase CSS "open" */
+function openModal()  { document.getElementById('modal').classList.add('open'); }
+
+/* Cierra el modal quitando la clase CSS "open" */
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+/* Lee los 3 inputs del modal y añade una nueva posición al portafolio */
+function addHolding() {
+  const ticker = document.getElementById('mTicker').value.trim().toUpperCase();
+  const shares = parseFloat(document.getElementById('mShares').value);
+  const cost   = parseFloat(document.getElementById('mCost').value);
+
+  // Validación básica: todos los campos deben tener valores válidos
+  if (!ticker || isNaN(shares) || isNaN(cost)) {
+    showToast('Completa todos los campos.');
+    return;
+  }
+
+  // Añadir al array de portfolio
+  portfolio.push({
+    ticker,
+    shares,
+    costBasis: cost,
+    price:  null, // se llenará en el próximo refreshAll()
+    change: null,
+  });
+
+  save();
+  closeModal();
+  renderAll();
+  showToast(`${ticker} añadido. Pulsa "Actualizar" para obtener el precio actual.`);
+
+  // Limpiar los inputs para la próxima vez que se abra el modal
+  document.getElementById('mTicker').value = '';
+  document.getElementById('mShares').value = '';
+  document.getElementById('mCost').value   = '';
+}
+
+/* Elimina una posición del portafolio por su índice.
+   El índice viene del botón × de cada fila de la tabla. */
+function removeHolding(i) {
+  if (!confirm(`¿Eliminar ${portfolio[i].ticker} del portafolio?`)) return;
+  portfolio.splice(i, 1); // elimina 1 elemento en la posición i
+  save();
+  renderAll();
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   10. EXPORTAR A EXCEL
+   ════════════════════════════════════════════════════════════
+   Usa SheetJS (XLSX) para generar un archivo .xlsx en el navegador
+   sin necesidad de servidor.
+
+   CÓMO AÑADIR MÁS COLUMNAS AL EXCEL:
+   Añade más propiedades al objeto dentro del .map() de `rows`.
+   El nombre de la propiedad se convierte en el encabezado de la columna.
+*/
+function exportExcel() {
+  const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
+
+  // Construir array de objetos → cada objeto = una fila en Excel
+  const rows = items.map(h => ({
+    'Ticker':        h.ticker,
+    'Acciones':      h.shares,
+    'Costo Base':    h.costBasis,
+    'Precio Actual': h.price ?? '—',
+    'Valor Total':   +h.value.toFixed(2),
+    'Costo Total':   +h.cost.toFixed(2),
+    'P&L $':         +(h.pnl).toFixed(2),
+    'P&L %':         +(h.pnlPct).toFixed(2),
+    'Cambio Día %':  h.change != null ? +h.change.toFixed(2) : '—',
+    'Peso %':        +(h.value / totalValue * 100).toFixed(2),
+  }));
+
+  // Fila vacía como separador visual
+  rows.push({});
+
+  // Fila de totales al final
+  rows.push({
+    'Ticker':      'TOTAL',
+    'Valor Total': +totalValue.toFixed(2),
+    'Costo Total': +totalCost.toFixed(2),
+    'P&L $':       +totalPnl.toFixed(2),
+    'P&L %':       +totalPnlPct.toFixed(2),
+  });
+
+  // Crear el libro de Excel y la hoja
+  const wb = XLSX.utils.book_new();              // nuevo libro (workbook)
+  const ws = XLSX.utils.json_to_sheet(rows);     // array de objetos → hoja (worksheet)
+  XLSX.utils.book_append_sheet(wb, ws, 'Portafolio'); // añadir hoja al libro
+
+  // Nombre del archivo con la fecha de hoy (formato ISO: YYYY-MM-DD)
+  XLSX.writeFile(wb, `depot_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+  showToast('✅ Excel descargado');
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   11. ANÁLISIS CON IA — Claude API
+   ════════════════════════════════════════════════════════════
+   Llama a la API de Anthropic con los datos actuales del portafolio.
+
+   Esta llamada funciona automáticamente dentro de Claude.ai.
+   Si usas el archivo localmente (fuera de Claude.ai), necesitas
+   añadir tu API key en el header "x-api-key".
+
+   CÓMO AÑADIR TU PROPIA API KEY (para uso local):
+   Descomenta y completa la siguiente línea en el fetch():
+   "x-api-key": "sk-ant-tu-key-aqui",
+
+   CÓMO AÑADIR UN NUEVO TIPO DE ANÁLISIS:
+   1. Añade un <option value="tuValor"> en el HTML del select
+   2. Añade una entrada en el objeto `prompts` con key = "tuValor"
+*/
+async function runAIAnalysis() {
+  const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
+  const promptType = document.getElementById('aiPromptSelect').value;
+  const out = document.getElementById('aiOutput');
+
+  out.innerHTML = '<span class="thinking">⏳ Claude está analizando tu portafolio...</span>';
+
+  // Construir resumen del portafolio en texto plano para incluir en el prompt
+  const portfolioSummary = items.map(h =>
+    `${h.ticker}: ${h.shares} acciones, ` +
+    `precio ${h.price != null ? '$' + h.price.toFixed(2) : 'no disponible'}, ` +
+    `costo base $${h.costBasis}, ` +
+    `P&L ${h.pnlPct.toFixed(1)}%, ` +
+    `cambio día ${h.change != null ? h.change.toFixed(2) + '%' : 'n/d'}`
+  ).join('\n');
+
+  // Prompts predefinidos para cada tipo de análisis.
+  // PERSONALIZACIÓN: modifica el texto del prompt para ajustar el tono o enfoque.
+  const prompts = {
+    general: `Eres un analista financiero experto. Analiza este portafolio de acciones y ETFs:\n\n${portfolioSummary}\n\nValor total: $${totalValue.toFixed(0)} | P&L total: ${totalPnlPct.toFixed(1)}%\n\nDa un análisis conciso en español con: 1) Evaluación general del portafolio, 2) Puntos fuertes, 3) Posibles riesgos, 4) Una recomendación accionable. Sé directo y específico.`,
+
+    risk: `Eres un gestor de riesgo. Analiza este portafolio:\n\n${portfolioSummary}\n\nValor total: $${totalValue.toFixed(0)}\n\nEvalúa en español: 1) Concentración de riesgo, 2) Diversificación sectorial, 3) Volatilidad implícita, 4) Nivel de riesgo general (1-10) con justificación. Sé específico con cada ticker.`,
+
+    rebalance: `Eres un asesor de portafolios. Revisa este portafolio:\n\n${portfolioSummary}\n\nValor total: $${totalValue.toFixed(0)}\n\nRecomienda en español: 1) Qué posiciones reducir y por qué, 2) Qué posiciones aumentar, 3) Si hay sectores o activos que faltan, 4) Un target de allocación ideal en porcentajes.`,
+
+    macro: `Eres un analista macro. El portafolio contiene: ${items.map(h => h.ticker).join(', ')} con valor total $${totalValue.toFixed(0)}.\n\nConsidera el contexto macroeconómico actual (2025-2026: tasas de interés, IA, geopolítica) y explica en español: 1) Qué factores macro afectan a este portafolio, 2) Qué riesgos macro específicos existen, 3) Oportunidades en este contexto.`,
+  };
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // 'x-api-key': 'sk-ant-TU_API_KEY_AQUI', // ← descomenta para uso local
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', // modelo a usar — no cambies esto
+        max_tokens: 1000,           // longitud máxima de la respuesta
+        messages: [
+          { role: 'user', content: prompts[promptType] }
+        ],
+      })
+    });
+
+    const data = await resp.json();
+    // La respuesta de Claude llega en data.content[0].text
+    const text = data?.content?.[0]?.text || 'No se recibió respuesta de la API.';
+
+    // Renderizar la respuesta con formato básico:
+    // **texto** → <strong>texto</strong>
+    // "1) algo" al inicio de línea → span con color accent
+    out.innerHTML = text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')       // negritas markdown
+      .replace(/^(\d+\).*)/gm, '<span class="label">$1</span>') // items numerados
+      .replace(/\n/g, '<br>');                                  // saltos de línea
+
+  } catch (e) {
+    out.innerHTML = '<span class="thinking">⚠ Error conectando con la API de Claude. ' +
+      'Si estás fuera de Claude.ai, añade tu API key en el código (línea marcada con "x-api-key").</span>';
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   12. TOAST — notificaciones temporales
+   ════════════════════════════════════════════════════════════
+   Muestra un mensaje en la esquina inferior derecha por `duration` ms.
+   Se puede llamar desde cualquier función.
+
+   Parámetros:
+   - msg:      string → texto a mostrar
+   - duration: number → ms que permanece visible (por defecto 3000ms)
+*/
+function showToast(msg, duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');                         // hace visible el toast (ver CSS)
+  setTimeout(() => t.classList.remove('show'), duration); // lo oculta después del tiempo
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   13. INICIALIZACIÓN — arranque de la app
+   ════════════════════════════════════════════════════════════
+   Este código se ejecuta una sola vez cuando se carga la página.
+   Orden: renderizar → cargar precios demo si no hay datos reales.
+*/
+renderAll();
+populateAlertTicker();
+
+// Si el primer holding no tiene precio (primera carga o datos sin precio),
+// cargar precios demo para que la interfaz no aparezca vacía.
+if (!portfolio[0].price) {
+  useDemoPrices();
+  renderAll();
+  setStatus('live');
+  document.getElementById('statusText').textContent =
+    'Precios demo cargados. Pulsa "Actualizar" para datos reales de Yahoo Finance.';
+  document.getElementById('lastUpdate').textContent =
+    'Demo · ' + new Date().toLocaleTimeString('es-ES');
+}
+
+</script>
+</body>
+</html>
