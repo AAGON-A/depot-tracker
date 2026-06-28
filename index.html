@@ -7,157 +7,245 @@
 
 <!--
   ╔══════════════════════════════════════════════════════════════╗
-  ║              DEPOT TRACKER v2 — ARCHIVO ÚNICO HTML           ║
+  ║           DEPOT TRACKER v3 — ARCHIVO ÚNICO HTML              ║
   ╠══════════════════════════════════════════════════════════════╣
-  ║  NUEVAS FUNCIONES EN v2:                                     ║
-  ║  • Gráfico clustering por SECTOR                             ║
-  ║  • Gráfico clustering por GEOGRAFÍA                          ║
-  ║  • Gráfico YTD (Year To Date) por ticker                     ║
-  ║  • Tabla de fundamentales: precio compra, precio actual,     ║
-  ║    dividendo, precio objetivo analistas, P/E, EPS, ROE, PEG  ║
-  ║  • Integración con Financial Modeling Prep (FMP) API         ║
-  ║    → Regístrate gratis en fmp.com para obtener tu API key    ║
+  ║  NOVEDADES v3:                                               ║
+  ║  • Botón "✦ IA" por fila → abre modal de análisis           ║
+  ║    individual con datos de precio, P&L, fundamentales        ║
+  ║  • Código 100% comentado en español                          ║
+  ║                                                              ║
+  ║  FUNCIONES ANTERIORES (v2):                                  ║
+  ║  • Gráfico YTD, Sector, Geografía                            ║
+  ║  • Tabla de fundamentales (P/E, EPS, ROE, PEG, dividendo)   ║
+  ║  • Integración FMP + Yahoo Finance                           ║
+  ║  • Alertas de precio + webhook                               ║
+  ║  • Exportar Excel                                            ║
+  ║                                                              ║
+  ║  LIBRERÍAS (CDN — requieren internet):                       ║
+  ║  • Chart.js 4.4  → todos los gráficos                        ║
+  ║  • SheetJS       → exportar Excel                            ║
   ╚══════════════════════════════════════════════════════════════╝
-
-  LIBRERÍAS (CDN — requieren internet):
-  • Chart.js  → todos los gráficos
-  • SheetJS   → exportar Excel
 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
-/* ── VARIABLES ───────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   VARIABLES CSS GLOBALES
+   Cambia cualquier valor aquí y se actualiza en toda la app.
+   ════════════════════════════════════════════════════════════════ */
 :root {
-  --bg:      #0a0e1a;
-  --surface: #111827;
-  --card:    #1a2235;
-  --border:  #1e2d45;
-  --accent:  #3b82f6;
-  --accent2: #10b981;
-  --accent3: #f59e0b;
-  --danger:  #ef4444;
-  --text:    #e2e8f0;
-  --muted:   #64748b;
-  --mono:    'JetBrains Mono', 'Fira Code', monospace;
+  --bg:      #0a0e1a;   /* fondo de la página */
+  --surface: #111827;   /* fondo de inputs, header */
+  --card:    #1a2235;   /* fondo de paneles y tarjetas */
+  --border:  #1e2d45;   /* color de bordes */
+  --accent:  #3b82f6;   /* azul — botones primarios, badges */
+  --accent2: #10b981;   /* verde — ganancias, estado live */
+  --accent3: #f59e0b;   /* amarillo — advertencias */
+  --danger:  #ef4444;   /* rojo — pérdidas, eliminar */
+  --purple:  #8b5cf6;   /* violeta — botón análisis IA individual */
+  --text:    #e2e8f0;   /* texto principal */
+  --muted:   #64748b;   /* texto secundario */
+  --mono:    'JetBrains Mono', 'Fira Code', monospace; /* fuente numérica */
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; }
 
-/* ── HEADER ─────────────────────────────────────────────────── */
+/* Reset: quita márgenes y padding por defecto del navegador */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HEADER — barra superior fija (sticky)
+   Se mantiene visible al hacer scroll gracias a position:sticky
+   ════════════════════════════════════════════════════════════════ */
 header {
-  background: var(--surface); border-bottom: 1px solid var(--border);
-  padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
-  position: sticky; top: 0; z-index: 100; gap: 12px; flex-wrap: wrap;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  gap: 12px;
+  flex-wrap: wrap; /* en móvil baja a dos líneas */
 }
 .logo { font-size: 17px; font-weight: 700; letter-spacing: -0.5px; white-space: nowrap; }
 .logo span { color: var(--accent); }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-/* API KEY input en el header */
+/* Input de la FMP API key en el header.
+   Tipo "password" para ocultar el valor visualmente.
+   El evento oninput llama a saveFmpKey() que lo guarda en localStorage. */
 .api-key-wrap { display: flex; align-items: center; gap: 6px; }
+.api-key-wrap label { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .api-key-wrap input {
-  background: var(--card); border: 1px solid var(--border); color: var(--text);
-  border-radius: 7px; padding: 6px 10px; font-size: 11px; width: 200px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 11px;
+  width: 200px;
   font-family: var(--mono);
 }
 .api-key-wrap input:focus { outline: none; border-color: var(--accent); }
-.api-key-wrap label { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
-/* ── BOTONES ─────────────────────────────────────────────────── */
-.btn { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; }
-.btn-primary   { background: var(--accent);  color: white; }
-.btn-primary:hover   { background: #2563eb; }
-.btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
-.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-.btn-green     { background: var(--accent2); color: white; }
-.btn-green:hover     { background: #059669; }
-.btn-amber     { background: var(--accent3); color: #0a0e1a; }
-.btn-amber:hover     { background: #d97706; }
+/* ════════════════════════════════════════════════════════════════
+   SISTEMA DE BOTONES
+   Base: .btn — variante de color: .btn-primary, .btn-secondary, etc.
+   Tamaño pequeño: añade .btn-sm
+   ════════════════════════════════════════════════════════════════ */
+.btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.btn-primary    { background: var(--accent);  color: white; }
+.btn-primary:hover    { background: #2563eb; }
+.btn-secondary  { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover  { border-color: var(--accent); color: var(--accent); }
+.btn-green      { background: var(--accent2); color: white; }
+.btn-green:hover      { background: #059669; }
+.btn-amber      { background: var(--accent3); color: #0a0e1a; }
+.btn-amber:hover      { background: #d97706; }
+/* Botón violeta para el análisis individual de cada acción */
+.btn-purple     { background: var(--purple); color: white; }
+.btn-purple:hover     { background: #7c3aed; }
+.btn-sm         { padding: 4px 9px; font-size: 11px; }
 
-/* ── LAYOUT ─────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   LAYOUT PRINCIPAL
+   ════════════════════════════════════════════════════════════════ */
 main { max-width: 1500px; margin: 0 auto; padding: 24px 20px; }
 
-/* ── STATUS BAR ─────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   BARRA DE ESTADO
+   El punto de color (statusDot) cambia con JS según el estado:
+   - sin clase → gris (inactivo)
+   - .live → verde pulsante (datos actualizados)
+   - .warn → amarillo (datos demo o error parcial)
+   ════════════════════════════════════════════════════════════════ */
 .status-bar {
-  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 18px; display: flex; align-items: center; gap: 10px;
-  margin-bottom: 20px; font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-size: 12px;
 }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .status-dot.live { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); animation: pulse 2s infinite; }
 .status-dot.warn { background: var(--accent3); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-/* ── KPI CARDS ───────────────────────────────────────────────── */
-.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+/* ════════════════════════════════════════════════════════════════
+   KPI CARDS — 4 tarjetas de métricas superiores
+   En móvil cambian a 2 columnas (ver @media al final)
+   ════════════════════════════════════════════════════════════════ */
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 22px; }
 .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
 .kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 6px; }
 .kpi-value { font-size: 26px; font-weight: 700; font-family: var(--mono); letter-spacing: -1px; }
 .kpi-sub   { font-size: 11px; margin-top: 4px; }
-.pos { color: var(--accent2); }
-.neg { color: var(--danger);  }
+.pos { color: var(--accent2); }  /* verde para valores positivos */
+.neg { color: var(--danger);  }  /* rojo para valores negativos */
 
-/* ── GRIDS ───────────────────────────────────────────────────── */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr;  gap: 16px; margin-bottom: 16px; }
-.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.grid-31{ display: grid; grid-template-columns: 2fr 1fr;  gap: 16px; margin-bottom: 16px; }
+/* ════════════════════════════════════════════════════════════════
+   GRIDS — disposición de paneles en columnas
+   .grid-2  → 2 columnas iguales
+   .grid-3  → 3 columnas iguales
+   .grid-31 → columna izquierda 2x más ancha que la derecha
+   ════════════════════════════════════════════════════════════════ */
+.grid-2  { display: grid; grid-template-columns: 1fr 1fr;     gap: 16px; margin-bottom: 16px; }
+.grid-3  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.grid-31 { display: grid; grid-template-columns: 2fr 1fr;     gap: 16px; margin-bottom: 16px; }
 
-/* ── PANEL ───────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   PANEL — contenedor genérico con fondo y borde
+   ════════════════════════════════════════════════════════════════ */
 .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-.panel-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 14px; }
+.panel-title {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 14px;
+}
 
-/* ── GRÁFICOS ────────────────────────────────────────────────── */
-.chart-wrap          { position: relative; height: 220px; }
-.chart-wrap-tall     { position: relative; height: 260px; }
-.chart-wrap-ytd      { position: relative; height: 200px; }
+/* ════════════════════════════════════════════════════════════════
+   CONTENEDORES DE GRÁFICOS
+   La altura fija es NECESARIA para que Chart.js funcione.
+   Si cambias la altura aquí, el gráfico se reescalará automáticamente.
+   ════════════════════════════════════════════════════════════════ */
+.chart-wrap      { position: relative; height: 220px; }
+.chart-wrap-tall { position: relative; height: 260px; }
 
-/* ── TABS (para cambiar entre secciones de gráficos) ─────────── */
-.tabs { display: flex; gap: 4px; margin-bottom: 14px; background: var(--surface); border-radius: 8px; padding: 4px; width: fit-content; }
-.tab  { padding: 6px 14px; border-radius: 6px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-
-/* ── TABLA DE POSICIONES ORIGINAL ───────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   TABLA DE POSICIONES
+   overflow-x: auto → scroll horizontal en pantallas pequeñas
+   min-width en table → evita que las columnas se compriman demasiado
+   ════════════════════════════════════════════════════════════════ */
 .table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 600px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 640px; }
 thead th {
-  color: var(--muted); font-weight: 700; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.5px; padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  color: var(--muted); font-weight: 700; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 7px 10px; text-align: left;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
 tbody tr:hover { background: rgba(59,130,246,0.05); }
-td { padding: 10px 10px; vertical-align: middle; white-space: nowrap; }
+td { padding: 9px 10px; vertical-align: middle; white-space: nowrap; }
 td.mono { font-family: var(--mono); }
-.ticker-badge { background: rgba(59,130,246,0.12); color: var(--accent); padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 11px; }
-.sector-pill  { background: rgba(139,92,246,0.12); color: #a78bfa; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 600; }
-.geo-pill     { background: rgba(16,185,129,0.12);  color: var(--accent2); padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 600; }
-.bar-wrap { background: var(--border); border-radius: 4px; height: 3px; width: 60px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px; }
+
+/* Badges de estilo "pill" para ticker, sector y país */
+.ticker-badge { background: rgba(59,130,246,0.12); color: var(--accent);  padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 11px; }
+.sector-pill  { background: rgba(139,92,246,0.12); color: #a78bfa;         padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+.geo-pill     { background: rgba(16,185,129,0.12); color: var(--accent2);  padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+
+/* Barra mini de progreso para el peso de cada posición */
+.bar-wrap { background: var(--border); border-radius: 4px; height: 3px; width: 55px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 5px; }
 .bar-fill { height: 100%; border-radius: 4px; }
 
-/* ── TABLA DE FUNDAMENTALES ──────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   TABLA DE FUNDAMENTALES
+   Igual que la tabla de posiciones pero con alineación derecha
+   para todas las columnas numéricas.
+   ════════════════════════════════════════════════════════════════ */
 .fund-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
 .fund-table thead th {
-  color: var(--muted); font-weight: 700; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.5px; padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  color: var(--muted); font-weight: 700; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 7px 10px; text-align: right;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .fund-table thead th:first-child { text-align: left; }
 .fund-table tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
 .fund-table tbody tr:hover { background: rgba(59,130,246,0.05); }
-.fund-table td { padding: 10px 10px; vertical-align: middle; text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.fund-table td { padding: 9px 10px; vertical-align: middle; text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
 .fund-table td:first-child { text-align: left; font-family: inherit; }
-/* Celda con indicador de upside/downside vs precio objetivo analistas */
+/* Colores para el Upside vs precio objetivo de analistas */
 .upside-pos { color: var(--accent2); font-weight: 600; }
 .upside-neg { color: var(--danger);  font-weight: 600; }
-/* Spinner de carga para la tabla */
 .loading-row td { text-align: center; color: var(--muted); padding: 20px; font-style: italic; }
 
-/* ── ALERTAS ─────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   ALERTAS DE PRECIO
+   ════════════════════════════════════════════════════════════════ */
 .alert-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
 .alert-row input, .alert-row select {
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
-  border-radius: 7px; padding: 7px 10px; font-size: 12px; flex: 1; min-width: 90px;
+  border-radius: 7px; padding: 7px 10px; font-size: 12px; flex: 1; min-width: 80px;
 }
 .alert-row input:focus, .alert-row select:focus { outline: none; border-color: var(--accent); }
 .alert-item {
@@ -167,7 +255,10 @@ td.mono { font-family: var(--mono); }
 }
 .alert-item .del { cursor: pointer; color: var(--danger); font-size: 15px; }
 
-/* ── AI OUTPUT ───────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   PANEL DE ANÁLISIS IA (portafolio completo)
+   white-space: pre-wrap → respeta los saltos de línea de Claude
+   ════════════════════════════════════════════════════════════════ */
 .ai-output {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: 14px; font-size: 12px; line-height: 1.8; color: var(--text);
@@ -176,44 +267,116 @@ td.mono { font-family: var(--mono); }
 .ai-output .thinking { color: var(--muted); font-style: italic; }
 .ai-output .label    { color: var(--accent); font-weight: 700; }
 
-/* ── MODAL ───────────────────────────────────────────────────── */
-.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; }
+/* ════════════════════════════════════════════════════════════════
+   MODALES — ventanas emergentes
+   Por defecto display:none. Al añadir .open cambia a flex.
+   ════════════════════════════════════════════════════════════════ */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1000;
+}
 .modal-bg.open { display: flex; }
-.modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 26px; width: 460px; max-width: 95vw; }
+
+/* Modal estándar (añadir posición) */
+.modal {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 26px; width: 460px; max-width: 95vw;
+}
 .modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; }
 .form-group { margin-bottom: 12px; }
 .form-group label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
-.form-group input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 13px; }
+.form-group input {
+  width: 100%; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 13px;
+}
 .form-group input:focus { outline: none; border-color: var(--accent); }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
 
-/* ── TOAST ───────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   MODAL DE ANÁLISIS INDIVIDUAL (nuevo en v3)
+   Más ancho que el modal estándar para mostrar el texto de Claude.
+   ════════════════════════════════════════════════════════════════ */
+.stock-modal {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 28px;
+  width: 680px; max-width: 96vw;
+  max-height: 90vh; overflow-y: auto;
+}
+/* Cabecera del modal: ticker + datos clave a la derecha */
+.stock-modal-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 20px; gap: 12px; flex-wrap: wrap;
+}
+.stock-modal-ticker {
+  font-size: 28px; font-weight: 800; letter-spacing: -1px;
+  color: var(--accent);
+}
+.stock-modal-price {
+  font-size: 22px; font-weight: 700; font-family: var(--mono);
+}
+/* Grid de chips de datos rápidos (precio, P&L, sector, etc.) */
+.stock-chips {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px;
+}
+.chip {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; font-size: 11px;
+}
+.chip .chip-label { color: var(--muted); display: block; margin-bottom: 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.chip .chip-value { font-family: var(--mono); font-weight: 700; font-size: 13px; }
+/* Selector de tipo de análisis dentro del modal individual */
+.stock-modal-controls {
+  display: flex; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap;
+}
+.stock-modal-controls select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 7px; padding: 6px 10px; font-size: 12px; flex: 1;
+}
+/* Output del análisis IA dentro del modal */
+.stock-ai-output {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; font-size: 12px; line-height: 1.8; color: var(--text);
+  min-height: 140px; max-height: 340px; overflow-y: auto; white-space: pre-wrap;
+}
+.stock-ai-output .thinking { color: var(--muted); font-style: italic; }
+.stock-ai-output .label    { color: var(--purple); font-weight: 700; }
+/* Separador visual */
+.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* ════════════════════════════════════════════════════════════════
+   TOAST — notificación temporal en esquina inferior derecha
+   ════════════════════════════════════════════════════════════════ */
 #toast {
-  position: fixed; bottom: 20px; right: 20px; background: var(--card); border: 1px solid var(--accent2);
+  position: fixed; bottom: 20px; right: 20px;
+  background: var(--card); border: 1px solid var(--accent2);
   border-radius: 10px; padding: 12px 18px; font-size: 12px; color: var(--text);
-  transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 9999; max-width: 300px;
+  transform: translateY(100px); opacity: 0; transition: all 0.3s;
+  z-index: 9999; max-width: 300px;
 }
 #toast.show { transform: translateY(0); opacity: 1; }
 
-/* ── RESPONSIVE ──────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   RESPONSIVE — ajustes para pantallas < 1000px
+   ════════════════════════════════════════════════════════════════ */
 @media (max-width: 1000px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .grid-2, .grid-3, .grid-31 { grid-template-columns: 1fr; }
-  .api-key-wrap input { width: 140px; }
+  .api-key-wrap input { width: 130px; }
 }
 </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════
-     HEADER
--->
+<!-- ══════════════════════════════════════════════════════════════
+     HEADER — barra superior pegajosa
+     ══════════════════════════════════════════════════════════════ -->
 <header>
-  <div class="logo">depot<span>.</span>tracker <span style="font-size:10px;color:var(--muted);font-weight:400">v2</span></div>
+  <div class="logo">depot<span>.</span>tracker <span style="font-size:10px;color:var(--muted);font-weight:400">v3</span></div>
 
-  <!-- Campo para la API key de Financial Modeling Prep (FMP).
-       El valor se guarda en localStorage al escribir.
-       Obtén tu key gratis en: https://financialmodelingprep.com/register -->
+  <!-- FMP API Key — se persiste en localStorage.
+       Obtén tu key gratis en: https://financialmodelingprep.com/register
+       Una vez registrado, encuéntrala en el Dashboard de tu cuenta. -->
   <div class="api-key-wrap">
     <label>FMP API Key:</label>
     <input type="password" id="fmpKey" placeholder="pega tu key aquí" oninput="saveFmpKey()">
@@ -221,90 +384,91 @@ td.mono { font-family: var(--mono); }
 
   <div class="header-actions">
     <button class="btn btn-secondary" onclick="openModal()">+ Posición</button>
-    <!-- refreshAll obtiene precios de Yahoo Finance; fetchFundamentals los fundamentales de FMP -->
-    <button class="btn btn-secondary" onclick="refreshAll()">↻ Precios</button>
-    <button class="btn btn-amber"     onclick="fetchAllFundamentals()">⬡ Fundamentales</button>
+    <button class="btn btn-secondary" onclick="refreshAll()">↻ Precios</button>        <!-- Yahoo Finance -->
+    <button class="btn btn-amber"     onclick="fetchAllFundamentals()">⬡ Fundamentales</button> <!-- FMP -->
     <button class="btn btn-green"     onclick="exportExcel()">⬇ Excel</button>
-    <button class="btn btn-primary"   onclick="runAIAnalysis()">✦ IA</button>
+    <button class="btn btn-primary"   onclick="runAIAnalysis()">✦ IA Portafolio</button>
   </div>
 </header>
 
 <main>
 
-  <!-- STATUS BAR -->
+  <!-- BARRA DE ESTADO — muestra si los datos son live, demo o hay error -->
   <div class="status-bar">
     <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">Pega tu FMP API key → pulsa "Fundamentales" → luego "Precios".</span>
+    <span id="statusText">Pega tu FMP key → "⬡ Fundamentales" → "↻ Precios".</span>
     <span style="margin-left:auto;color:var(--muted);font-size:11px" id="lastUpdate"></span>
   </div>
 
-  <!-- KPI CARDS -->
+  <!-- ══════════════════════════════════════════════════════════
+       KPI CARDS — 4 métricas principales del portafolio.
+       Los valores se inyectan con JS en renderKPIs().
+       ══════════════════════════════════════════════════════════ -->
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="kpi-label">Valor Total</div>
-      <div class="kpi-value" id="kpiTotal">—</div>
-      <div class="kpi-sub"   id="kpiTotalSub"></div>
+      <div class="kpi-value" id="kpiTotal">—</div>     <!-- precio_actual × acciones sumado -->
+      <div class="kpi-sub"   id="kpiTotalSub"></div>   <!-- cuánto invertiste -->
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Ganancia / Pérdida</div>
-      <div class="kpi-value" id="kpiPnl">—</div>
-      <div class="kpi-sub"   id="kpiPnlSub"></div>
+      <div class="kpi-value" id="kpiPnl">—</div>       <!-- valor_total - costo_total en $ -->
+      <div class="kpi-sub"   id="kpiPnlSub"></div>     <!-- en % -->
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Mejor Posición</div>
-      <div class="kpi-value" id="kpiBest">—</div>
+      <div class="kpi-value" id="kpiBest">—</div>      <!-- ticker con mayor % ganancia -->
       <div class="kpi-sub"   id="kpiBestSub"></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Peor Posición</div>
-      <div class="kpi-value" id="kpiWorst">—</div>
+      <div class="kpi-value" id="kpiWorst">—</div>     <!-- ticker con menor % (o mayor pérdida) -->
       <div class="kpi-sub"   id="kpiWorstSub"></div>
     </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       BLOQUE 1: GRÁFICOS DE RENDIMIENTO (día + YTD)
-       Dos gráficos en fila: cambio % del día y rendimiento YTD
-  -->
+       GRÁFICOS DE RENDIMIENTO
+       chartBar → cambio % del día (barras verdes/rojas)
+       chartYTD → rendimiento acumulado desde 1 de enero (barras azules/rojas)
+       ══════════════════════════════════════════════════════════ -->
   <div class="grid-2">
     <div class="panel">
       <div class="panel-title">📊 Rendimiento del día (%)</div>
       <div class="chart-wrap"><canvas id="chartBar"></canvas></div>
     </div>
     <div class="panel">
-      <!-- YTD = Year To Date: rendimiento desde el 1 de enero hasta hoy
-           Se calcula con: (precio_actual - precio_inicio_año) / precio_inicio_año * 100
-           FMP provee el campo yearHigh/yearLow; usamos el histórico del 1 de enero -->
       <div class="panel-title">📅 Year to Date (%)</div>
+      <!-- YTD = (precio_hoy - precio_1_enero) / precio_1_enero × 100
+           Datos de FMP: endpoint historical-price-full con from/to = 2 de enero -->
       <div class="chart-wrap"><canvas id="chartYTD"></canvas></div>
     </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       BLOQUE 2: CLUSTERING — SECTOR y GEOGRAFÍA
-       Dos gráficos de dona mostrando la distribución por categoría.
-       Los datos de sector y país vienen de FMP (fetchFundamentals).
-  -->
+       CLUSTERING — agrupa el valor del portafolio por categoría
+       Datos de sector y país provienen de FMP (perfil de empresa).
+       Algoritmo: sumar h.value de todas las posiciones del mismo sector/país.
+       ══════════════════════════════════════════════════════════ -->
   <div class="grid-2">
     <div class="panel">
-      <!-- Clustering por sector: agrupa el valor total de cada posición
-           según el sector económico de la empresa (ej: Technology, Healthcare)
-           Útil para detectar sobre-concentración en un sector -->
       <div class="panel-title">🏭 Clustering por Sector</div>
       <div class="chart-wrap-tall"><canvas id="chartSector"></canvas></div>
     </div>
     <div class="panel">
-      <!-- Clustering por geografía: agrupa por país o región de la empresa.
-           FMP provee el campo `country` en el perfil de la empresa.
-           Para ETFs se usa el campo de exposición geográfica principal. -->
       <div class="panel-title">🌍 Clustering por Geografía</div>
       <div class="chart-wrap-tall"><canvas id="chartGeo"></canvas></div>
     </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       BLOQUE 3: TABLA DE POSICIONES + ALERTAS
-  -->
+       TABLA DE POSICIONES (con botón de análisis individual)
+       + PANEL DE ALERTAS
+
+       NUEVO en v3: columna "✦ IA" con botón por fila.
+       Al pulsarlo llama a openStockModal(ticker) que abre
+       el modal de análisis individual de esa acción.
+       ══════════════════════════════════════════════════════════ -->
   <div class="grid-31">
     <div class="panel">
       <div class="panel-title">📋 Posiciones</div>
@@ -321,18 +485,24 @@ td.mono { font-family: var(--mono); }
               <th>Sector</th>
               <th>País</th>
               <th>Peso</th>
-              <th></th>
+              <th>✦ IA</th>   <!-- NUEVO: columna para el botón de análisis individual -->
+              <th></th>        <!-- columna del botón eliminar -->
             </tr>
           </thead>
-          <tbody id="holdingsBody"></tbody>
+          <tbody id="holdingsBody">
+            <!-- Filas generadas dinámicamente por renderTable() -->
+          </tbody>
         </table>
       </div>
     </div>
 
+    <!-- PANEL DE ALERTAS -->
     <div class="panel">
       <div class="panel-title">🔔 Alertas de precio</div>
+
+      <!-- Formulario para crear alerta: ticker + tipo (sobre/bajo) + precio -->
       <div class="alert-row">
-        <select id="alertTicker"></select>
+        <select id="alertTicker"></select>  <!-- se rellena con populateAlertTicker() -->
         <select id="alertType" style="flex:0.5">
           <option value="above">↑ Sobre</option>
           <option value="below">↓ Bajo</option>
@@ -340,12 +510,17 @@ td.mono { font-family: var(--mono); }
         <input type="number" id="alertPrice" placeholder="$ precio">
         <button class="btn btn-secondary" onclick="addAlert()" style="font-size:11px">+</button>
       </div>
+
+      <!-- Lista de alertas activas — generada por renderAlerts() -->
       <div id="alertsList"></div>
+
+      <!-- Configuración de email/webhook para alertas externas -->
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <div class="panel-title" style="margin-bottom:8px">Email / Webhook</div>
         <input type="email" id="emailInput" placeholder="tu@email.com"
           style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-size:12px;margin-bottom:8px">
         <div style="display:flex;gap:6px">
+          <!-- Genera una URL de webhook de ejemplo para copiar en Make.com / n8n -->
           <button class="btn btn-secondary" onclick="generateWebhook()" style="font-size:10px">Generar webhook</button>
           <button class="btn btn-secondary" onclick="testAlert()"        style="font-size:10px">Probar</button>
         </div>
@@ -355,24 +530,25 @@ td.mono { font-family: var(--mono); }
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       BLOQUE 4: TABLA DE FUNDAMENTALES
-       Datos obtenidos de FMP. Columnas:
-       • Valor compra   → costBasis que el usuario ingresó
-       • Valor actual   → precio de mercado (Yahoo Finance)
-       • Dividendo/acc  → dividendo anual por acción (FMP: lastDiv)
-       • Yield %        → dividendo / precio actual × 100
-       • Precio objetivo→ mediana de estimaciones de analistas (FMP: targetMedianPrice)
-       • Upside %       → (precio_objetivo - precio_actual) / precio_actual × 100
-       • P/E            → Price to Earnings ratio (FMP: pe)
-       • EPS            → Earnings Per Share (FMP: eps)
-       • ROE %          → Return on Equity (FMP: roe, viene en decimal → ×100)
-       • PEG            → P/E to Growth ratio (FMP: pegRatio)
-  -->
+       TABLA DE FUNDAMENTALES
+       Fuente: Financial Modeling Prep API
+       Columnas y su significado:
+       • Compra $        → precio que el usuario pagó (costBasis)
+       • Actual $        → precio de mercado (Yahoo Finance)
+       • Div/acc $       → dividendo anual por acción (FMP: lastDiv)
+       • Yield %         → (lastDiv / precio_actual) × 100
+       • Obj. Analistas  → mediana de precio objetivo de analistas (FMP: targetMedianPrice)
+       • Upside %        → (objetivo - actual) / actual × 100 (verde=potencial alza)
+       • P/E             → Price/Earnings — cuánto pagas por cada $ de beneficio
+       • EPS $           → Earnings Per Share — beneficio por acción
+       • ROE %           → Return on Equity — rentabilidad sobre capital propio
+       • PEG             → P/E ajustado por crecimiento (< 1 puede ser oportunidad)
+       ══════════════════════════════════════════════════════════ -->
   <div class="panel" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div class="panel-title" style="margin:0">📈 Fundamentales</div>
       <div style="font-size:11px;color:var(--muted)">
-        Fuente: Financial Modeling Prep · 
+        Fuente: Financial Modeling Prep ·
         <span id="fundStatus" style="color:var(--accent3)">pendiente — pulsa "⬡ Fundamentales"</span>
       </div>
     </div>
@@ -403,8 +579,8 @@ td.mono { font-family: var(--mono); }
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       BLOQUE 5: DISTRIBUCIÓN PORTAFOLIO + ANÁLISIS IA
-  -->
+       DISTRIBUCIÓN DEL PORTAFOLIO + ANÁLISIS IA (portafolio completo)
+       ══════════════════════════════════════════════════════════ -->
   <div class="grid-2">
     <div class="panel">
       <div class="panel-title">🍩 Distribución del portafolio ($)</div>
@@ -412,8 +588,9 @@ td.mono { font-family: var(--mono); }
     </div>
     <div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
-        <div class="panel-title" style="margin:0">✦ Análisis IA — Claude</div>
+        <div class="panel-title" style="margin:0">✦ Análisis IA — Portafolio</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <!-- Selector del tipo de análisis que se enviará a Claude -->
           <select id="aiPromptSelect" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 8px;font-size:11px">
             <option value="general">Análisis general</option>
             <option value="risk">Evaluación de riesgo</option>
@@ -432,12 +609,17 @@ td.mono { font-family: var(--mono); }
 
 </main>
 
-<!-- MODAL AÑADIR POSICIÓN -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL: AÑADIR POSICIÓN
+     Se abre con openModal() y se cierra con closeModal()
+     ══════════════════════════════════════════════════════════════ -->
 <div class="modal-bg" id="modal">
   <div class="modal">
     <h3>➕ Nueva posición</h3>
     <div class="form-group">
       <label>Ticker (ej: AAPL, NVDA, VOO)</label>
+      <!-- text-transform:uppercase convierte a mayúsculas mientras escribes -->
       <input type="text" id="mTicker" placeholder="AAPL" style="text-transform:uppercase">
     </div>
     <div class="form-group">
@@ -455,57 +637,141 @@ td.mono { font-family: var(--mono); }
   </div>
 </div>
 
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL: ANÁLISIS INDIVIDUAL DE ACCIÓN (NUEVO v3)
+     ══════════════════════════════════════════════════════════════
+     Se abre al pulsar el botón "✦" de cualquier fila de la tabla.
+     Muestra: ticker, precio, chips de datos clave, y un panel
+     donde Claude analiza solo esa acción en detalle.
+
+     Estructura:
+     1. Cabecera: ticker grande + precio actual
+     2. Chips: P&L, sector, país, P/E, EPS, ROE, PEG, dividendo, YTD
+     3. Separador
+     4. Selector de tipo de análisis
+     5. Botón "Analizar"
+     6. Output del análisis de Claude
+     7. Botón cerrar
+-->
+<div class="modal-bg" id="stockModal">
+  <div class="stock-modal">
+
+    <!-- Cabecera: ticker y precio -->
+    <div class="stock-modal-header">
+      <div>
+        <div class="stock-modal-ticker" id="smTicker">—</div>  <!-- ej: "AAPL" -->
+        <div style="color:var(--muted);font-size:12px;margin-top:2px" id="smSector">—</div> <!-- sector/país -->
+      </div>
+      <div style="text-align:right">
+        <div class="stock-modal-price" id="smPrice">—</div>  <!-- precio actual -->
+        <div style="font-size:12px;margin-top:2px" id="smPnl">—</div>   <!-- P&L vs compra -->
+      </div>
+    </div>
+
+    <!-- Chips de datos rápidos — se generan dinámicamente en openStockModal() -->
+    <div class="stock-chips" id="smChips"></div>
+
+    <hr class="divider">
+
+    <!-- Selector de tipo de análisis y botón -->
+    <div class="stock-modal-controls">
+      <select id="smPromptSelect">
+        <option value="completo">Análisis completo</option>
+        <option value="tecnico">Valoración técnica (P/E, PEG, ROE)</option>
+        <option value="dividendo">Análisis de dividendo</option>
+        <option value="comprar">¿Comprar más o reducir?</option>
+        <option value="riesgo">Riesgos específicos</option>
+      </select>
+      <!-- stockAnalysisTicker guarda qué ticker se está analizando actualmente -->
+      <button class="btn btn-purple" onclick="runStockAnalysis()">✦ Analizar con IA</button>
+    </div>
+
+    <!-- Output del análisis de Claude para esta acción -->
+    <div class="stock-ai-output" id="smOutput">
+      <span class="thinking">Pulsa "✦ Analizar con IA" para obtener el análisis.</span>
+    </div>
+
+    <!-- Botón cerrar en la parte inferior -->
+    <div style="margin-top:18px;text-align:right">
+      <button class="btn btn-secondary" onclick="closeStockModal()">Cerrar</button>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- Contenedor del toast — JS le añade/quita la clase "show" -->
 <div id="toast"></div>
 
 
 <script>
-/* ═══════════════════════════════════════════════════════════════
-   ESTADO GLOBAL
-   ═══════════════════════════════════════════════════════════════
-   portfolio[]  → posiciones del usuario
-   fundamentals → objeto { TICKER: { pe, eps, roe, peg, div, targetPrice, sector, country, ytdChange } }
-   alerts[]     → alertas de precio
+/* ══════════════════════════════════════════════════════════════════
+   ██  ESTADO GLOBAL DE LA APLICACIÓN
+   ══════════════════════════════════════════════════════════════════
+
+   portfolio[]    → array de posiciones del usuario.
+                    Cada objeto: { ticker, shares, costBasis, price, change }
+                    Se persiste en localStorage bajo la clave 'depot_portfolio'.
+
+   fundamentals{} → cache de datos de FMP por ticker.
+                    Estructura: { 'AAPL': { sector, country, pe, eps, roe, peg,
+                                           lastDiv, targetPrice, ytdChange, ... } }
+                    Se persiste en localStorage para no repetir llamadas a FMP.
+
+   alerts[]       → alertas de precio. Cada objeto: { ticker, type, price, triggered }
+
+   stockAnalysisTicker → ticker que está actualmente abierto en el modal individual.
+                          Se usa en runStockAnalysis() para saber qué acción analizar.
 */
 let portfolio = JSON.parse(localStorage.getItem('depot_portfolio') || 'null') || [
+  /* Portafolio de ejemplo. Cámbialo por tus posiciones reales
+     pulsando "+ Posición" o editando este array directamente. */
   { ticker: 'AAPL', shares: 10, costBasis: 150.00, price: null, change: null },
   { ticker: 'MSFT', shares: 5,  costBasis: 280.00, price: null, change: null },
   { ticker: 'NVDA', shares: 8,  costBasis: 420.00, price: null, change: null },
   { ticker: 'SPY',  shares: 3,  costBasis: 430.00, price: null, change: null },
 ];
 
-/* fundamentals: caché de datos de FMP para no repetir llamadas.
-   Se persiste en localStorage para no gastar calls de la API en cada recarga. */
 let fundamentals = JSON.parse(localStorage.getItem('depot_fundamentals') || '{}');
+let alerts       = JSON.parse(localStorage.getItem('depot_alerts')       || '[]');
 
-let alerts = JSON.parse(localStorage.getItem('depot_alerts') || '[]');
-
-/* Referencias a instancias de Chart.js (necesario para destruirlas antes de redibujar) */
+/* Instancias actuales de Chart.js (necesario para destruir antes de redibujar) */
 let chartBar, chartDoughnut, chartSector, chartGeo, chartYTD;
 
-/* Paleta de colores para gráficos */
-const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316','#84cc16','#ec4899','#14b8a6'];
+/* Ticker activo en el modal de análisis individual */
+let stockAnalysisTicker = null;
 
+/* Paleta de colores para gráficos. Añade más si tienes > 10 posiciones. */
+const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444',
+                '#06b6d4','#f97316','#84cc16','#ec4899','#14b8a6'];
+
+/* Persiste portfolio, alerts y fundamentals en localStorage */
 function save() {
   localStorage.setItem('depot_portfolio',    JSON.stringify(portfolio));
   localStorage.setItem('depot_alerts',       JSON.stringify(alerts));
   localStorage.setItem('depot_fundamentals', JSON.stringify(fundamentals));
 }
 
-/* Lee la FMP API key del input del header */
-function getFmpKey() {
-  return document.getElementById('fmpKey').value.trim();
-}
+/* Obtiene la FMP key del input del header */
+function getFmpKey() { return document.getElementById('fmpKey').value.trim(); }
 
-/* Guarda la FMP key en localStorage para no tener que volver a pegarla */
-function saveFmpKey() {
-  localStorage.setItem('depot_fmp_key', getFmpKey());
-}
+/* Guarda la FMP key en localStorage para recordarla entre sesiones */
+function saveFmpKey() { localStorage.setItem('depot_fmp_key', getFmpKey()); }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   YAHOO FINANCE — precios en tiempo real
-   Usa proxies CORS públicos para evitar restricciones del navegador.
-   Devuelve { price, change } o null si falla.
+/* ══════════════════════════════════════════════════════════════════
+   ██  YAHOO FINANCE — PRECIOS EN TIEMPO REAL
+   ══════════════════════════════════════════════════════════════════
+   Yahoo Finance no permite llamadas directas desde el navegador
+   (restricción CORS). Solución: usar proxies públicos que reenvían
+   la petición por nosotros.
+
+   Intentamos hasta 2 proxies en orden. Si ambos fallan → null.
+   El caller (refreshAll) decidirá qué hacer con null.
+
+   Parámetro:  ticker → string, ej: "AAPL"
+   Devuelve:   { price: number, change: number } | null
 */
 async function fetchPrice(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
@@ -517,18 +783,20 @@ async function fetchPrice(ticker) {
     try {
       const r = await fetch(proxy(url), { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
-      const d = await r.json();
+      const d    = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
       if (!meta) continue;
       const price  = meta.regularMarketPrice;
       const prev   = meta.previousClose || meta.chartPreviousClose;
       const change = prev ? ((price - prev) / prev) * 100 : 0;
       return { price, change };
-    } catch {}
+    } catch { /* timeout o error de red → prueba el siguiente proxy */ }
   }
   return null;
 }
 
+/* Actualiza los precios de todos los tickers del portafolio.
+   Si ninguno se puede actualizar, cae a useDemoPrices(). */
 async function refreshAll() {
   setStatus('cargando');
   document.getElementById('statusText').textContent = 'Obteniendo precios de Yahoo Finance...';
@@ -540,7 +808,7 @@ async function refreshAll() {
   save();
   if (ok === 0) {
     setStatus('warn');
-    document.getElementById('statusText').textContent = 'Yahoo Finance no disponible. Usando precios demo.';
+    document.getElementById('statusText').textContent = 'Yahoo Finance no disponible. Precios demo.';
     useDemoPrices();
   } else {
     setStatus('live');
@@ -551,10 +819,11 @@ async function refreshAll() {
   renderAll();
 }
 
+/* Precios de demostración para cuando Yahoo Finance no está disponible.
+   Actualiza este objeto si quieres cifras más actuales. */
 function useDemoPrices() {
-  /* Precios de demostración. Actualízalos manualmente si quieres cifras más recientes. */
   const demo    = { AAPL:211.10, MSFT:432.50, NVDA:131.40, SPY:550.80, GOOGL:178.20, AMZN:192.30, TSLA:252.10, META:541.90 };
-  const demoChg = { AAPL:0.95,  MSFT:-0.21,  NVDA:2.40,   SPY:0.52,   GOOGL:0.73,   AMZN:-0.15,  TSLA:3.21,   META:1.14   };
+  const demoChg = { AAPL:0.95,  MSFT:-0.21,  NVDA:2.40,   SPY:0.52,   GOOGL:0.73,   AMZN:-0.15,  TSLA:3.21,   META:1.14 };
   portfolio.forEach(h => {
     h.price  = demo[h.ticker]    || +(100 + Math.random() * 400).toFixed(2);
     h.change = demoChg[h.ticker] || +((Math.random() - 0.5) * 4).toFixed(2);
@@ -562,44 +831,47 @@ function useDemoPrices() {
   save();
 }
 
+/* Controla el punto de estado en la barra superior */
 function setStatus(state) {
-  const dot = document.getElementById('statusDot');
-  dot.className = 'status-dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
+  document.getElementById('statusDot').className =
+    'status-dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   FINANCIAL MODELING PREP (FMP) — fundamentales
-   ═══════════════════════════════════════════════════════════════
-   FMP ofrece tres endpoints que usamos:
+/* ══════════════════════════════════════════════════════════════════
+   ██  FINANCIAL MODELING PREP (FMP) — FUNDAMENTALES
+   ══════════════════════════════════════════════════════════════════
+   Usamos 4 endpoints de FMP por ticker:
 
    1. /v3/profile/{ticker}
-      → sector, country, mktCap, lastDiv, pe, eps, description
-      Docs: https://site.financialmodelingprep.com/developer/docs#company-profile
+      Devuelve: sector, country, mktCap, lastDiv, pe, eps, price
+      → Perfil completo de la empresa
 
    2. /v4/price-target-consensus/{ticker}
-      → targetMedianPrice (mediana del precio objetivo de analistas)
-      Docs: https://site.financialmodelingprep.com/developer/docs#price-target-consensus
+      Devuelve: targetMedianPrice (mediana del consenso de analistas)
 
    3. /v3/key-metrics-ttm/{ticker}
-      → roeTTM (Return on Equity), pegRatioTTM, peRatioTTM, epsBasicTTM
-      Docs: https://site.financialmodelingprep.com/developer/docs#key-metrics-ttm
+      Devuelve: roeTTM, pegRatioTTM, peRatioTTM, epsBasicTTM
+      TTM = Trailing Twelve Months (últimos 12 meses)
 
-   4. /v3/historical-price-full/{ticker}?from=YYYY-01-01&to=YYYY-01-01
-      → precio de cierre del 1 de enero para calcular YTD
+   4. /v3/historical-price-full/{ticker}?from=YYYY-01-02&to=YYYY-01-02
+      Devuelve: precio de cierre del inicio de año para calcular YTD
+
+   Todas las llamadas se hacen en paralelo con Promise.all().
+   Luego esperamos 300ms entre tickers para respetar el rate limit.
+
+   COSTE DE API: 4 llamadas × número de tickers
+   Con 4 tickers: 16 calls → dentro del límite gratuito de 250/día
 */
-
-/* Obtiene todos los datos de FMP para un ticker.
-   Guarda el resultado en el objeto `fundamentals` (caché). */
 async function fetchFundamentals(ticker) {
   const key = getFmpKey();
   if (!key) return null;
 
-  const BASE = 'https://financialmodelingprep.com/api';
-  const yearStart = new Date().getFullYear() + '-01-02'; /* 2 de enero para asegurar día hábil */
+  const BASE      = 'https://financialmodelingprep.com/api';
+  const yearStart = new Date().getFullYear() + '-01-02'; /* 2 de enero (primer día hábil típico) */
 
   try {
-    /* Hacemos las 4 llamadas en paralelo con Promise.all para ahorrar tiempo */
+    /* Lanzamos las 4 peticiones en paralelo para ahorrar tiempo */
     const [profileRes, targetRes, metricsRes, ytdRes] = await Promise.all([
       fetch(`${BASE}/v3/profile/${ticker}?apikey=${key}`).then(r => r.json()),
       fetch(`${BASE}/v4/price-target-consensus/${ticker}?apikey=${key}`).then(r => r.json()),
@@ -607,50 +879,41 @@ async function fetchFundamentals(ticker) {
       fetch(`${BASE}/v3/historical-price-full/${ticker}?from=${yearStart}&to=${yearStart}&apikey=${key}`).then(r => r.json()),
     ]);
 
-    const profile = profileRes?.[0]  || {};
-    const target  = targetRes?.[0]   || {};
-    const metrics = metricsRes?.[0]  || {};
-    /* El histórico devuelve un array de precios; tomamos el primer resultado */
-    const ytdPrice = ytdRes?.historical?.[0]?.close || null;
-    const currentPrice = profile.price || null;
-    /* YTD % = (precio actual - precio inicio año) / precio inicio año × 100 */
-    const ytdChange = (ytdPrice && currentPrice)
-      ? ((currentPrice - ytdPrice) / ytdPrice) * 100
+    const profile = profileRes?.[0] || {};
+    const target  = targetRes?.[0]  || {};
+    const metrics = metricsRes?.[0] || {};
+
+    /* YTD: comparamos precio actual con el cierre del 1 de enero */
+    const ytdPrice    = ytdRes?.historical?.[0]?.close || null;
+    const currentPx   = profile.price || null;
+    const ytdChange   = (ytdPrice && currentPx)
+      ? ((currentPx - ytdPrice) / ytdPrice) * 100
       : null;
 
     return {
-      /* Datos del perfil de empresa */
-      sector:       profile.sector       || '—',
-      country:      profile.country      || '—',
-      lastDiv:      profile.lastDiv      || 0,       /* dividendo anual por acción */
-      pe:           profile.pe           || metrics.peRatioTTM || null,
-      eps:          profile.eps          || metrics.epsBasicTTM || null,
-      mktCap:       profile.mktCap       || null,
-
-      /* Precio objetivo de analistas */
-      targetPrice:  target.targetMedianPrice || null,
-
-      /* Métricas TTM (Trailing Twelve Months = últimos 12 meses) */
-      roe:          metrics.roeTTM       || null,    /* viene en decimal, ej: 0.15 = 15% */
-      peg:          metrics.pegRatioTTM  || null,
-
-      /* YTD */
+      sector:      profile.sector       || '—',
+      country:     profile.country      || '—',
+      lastDiv:     profile.lastDiv      || 0,       /* dividendo anual $/acción */
+      pe:          profile.pe           || metrics.peRatioTTM  || null,
+      eps:         profile.eps          || metrics.epsBasicTTM || null,
+      mktCap:      profile.mktCap       || null,
+      description: profile.description  || '',      /* descripción de la empresa */
+      targetPrice: target.targetMedianPrice         || null,
+      roe:         metrics.roeTTM       || null,    /* decimal: 0.15 = 15% */
+      peg:         metrics.pegRatioTTM  || null,
       ytdChange,
       ytdBasePrice: ytdPrice,
     };
   } catch (e) {
-    console.error(`FMP error para ${ticker}:`, e);
+    console.error(`FMP error ${ticker}:`, e);
     return null;
   }
 }
 
-/* Llama a fetchFundamentals() para cada ticker del portafolio */
+/* Itera sobre el portafolio y llama a fetchFundamentals() para cada ticker */
 async function fetchAllFundamentals() {
-  const key = getFmpKey();
-  if (!key) {
-    showToast('⚠ Pega tu FMP API key en el campo del header');
-    return;
-  }
+  if (!getFmpKey()) { showToast('⚠ Pega tu FMP API key primero'); return; }
+
   document.getElementById('fundStatus').textContent = 'cargando...';
   document.getElementById('fundStatus').style.color = 'var(--accent3)';
   document.getElementById('statusText').textContent = 'Obteniendo fundamentales de FMP...';
@@ -659,26 +922,27 @@ async function fetchAllFundamentals() {
   let ok = 0;
   for (const h of portfolio) {
     const data = await fetchFundamentals(h.ticker);
-    if (data) {
-      fundamentals[h.ticker] = data;
-      ok++;
-    }
-    /* Pequeña pausa entre llamadas para respetar el rate limit de FMP (250 calls/día) */
+    if (data) { fundamentals[h.ticker] = data; ok++; }
+    /* 300ms entre llamadas para no saturar el rate limit de FMP */
     await new Promise(r => setTimeout(r, 300));
   }
 
   save();
-  document.getElementById('fundStatus').textContent    = `${ok}/${portfolio.length} tickers actualizados · ${new Date().toLocaleTimeString('es-ES')}`;
-  document.getElementById('fundStatus').style.color    = 'var(--accent2)';
-  document.getElementById('statusText').textContent    = `Fundamentales cargados (${ok} tickers) — FMP`;
-  document.getElementById('lastUpdate').textContent    = new Date().toLocaleTimeString('es-ES');
+  const ts = new Date().toLocaleTimeString('es-ES');
+  document.getElementById('fundStatus').textContent = `${ok}/${portfolio.length} actualizados · ${ts}`;
+  document.getElementById('fundStatus').style.color = 'var(--accent2)';
+  document.getElementById('statusText').textContent = `Fundamentales cargados (${ok} tickers)`;
+  document.getElementById('lastUpdate').textContent = ts;
   setStatus(ok > 0 ? 'live' : 'warn');
   renderAll();
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   RENDER ALL — punto de entrada para redibujar toda la UI
+/* ══════════════════════════════════════════════════════════════════
+   ██  RENDER ALL — punto de entrada único para actualizar la UI
+   ══════════════════════════════════════════════════════════════════
+   Llama a todas las funciones de renderizado en el orden correcto.
+   Usa esta función siempre que el estado cambie.
 */
 function renderAll() {
   renderKPIs();
@@ -690,40 +954,61 @@ function renderAll() {
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS DE FORMATO
+/* ══════════════════════════════════════════════════════════════════
+   ██  HELPERS DE FORMATO
 */
+/* fmt(n, dec): formatea número con separadores alemanes (punto=miles, coma=decimal)
+   Cambia 'de-DE' por 'es-ES' o 'en-US' según tu preferencia */
 function fmt(n, dec = 2) {
-  return n != null ? n.toLocaleString('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : '—';
+  return n != null
+    ? n.toLocaleString('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+    : '—';
 }
-function fmtUSD(n)   { return n != null ? '$' + fmt(n) : '—'; }
-function fmtPct(n)   { return n != null ? (n >= 0 ? '+' : '') + fmt(n) + '%' : '—'; }
+function fmtUSD(n) { return n != null ? '$' + fmt(n) : '—'; }
+function fmtPct(n) { return n != null ? (n >= 0 ? '+' : '') + fmt(n) + '%' : '—'; }
 
-/* Calcula valor, costo, P&L para cada holding y los totales del portafolio */
+/* Calcula valor de mercado, costo, P&L y peso de cada holding,
+   y los totales del portafolio. */
 function calcTotals() {
   let totalValue = 0, totalCost = 0;
   const items = portfolio.map(h => {
+    /* Si tenemos precio de mercado lo usamos; si no, el costo (P&L = $0) */
     const v = h.price != null ? h.price * h.shares : h.costBasis * h.shares;
     const c = h.costBasis * h.shares;
     totalValue += v; totalCost += c;
-    return { ...h, value: v, cost: c, pnl: v - c, pnlPct: ((v - c) / c) * 100 };
+    return {
+      ...h,
+      value:  v,
+      cost:   c,
+      pnl:    v - c,
+      pnlPct: ((v - c) / c) * 100,
+    };
   });
-  return { items, totalValue, totalCost, totalPnl: totalValue - totalCost, totalPnlPct: ((totalValue - totalCost) / totalCost) * 100 };
+  return {
+    items,
+    totalValue,
+    totalCost,
+    totalPnl:    totalValue - totalCost,
+    totalPnlPct: ((totalValue - totalCost) / totalCost) * 100,
+  };
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   KPI CARDS
+/* ══════════════════════════════════════════════════════════════════
+   ██  KPI CARDS — 4 tarjetas superiores
 */
 function renderKPIs() {
   const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
-  document.getElementById('kpiTotal').textContent    = fmtUSD(totalValue);
   const cls = totalPnl >= 0 ? 'pos' : 'neg';
+
+  document.getElementById('kpiTotal').textContent    = fmtUSD(totalValue);
   document.getElementById('kpiTotalSub').innerHTML   = `<span class="${cls}">Invertido: ${fmtUSD(totalCost)}</span>`;
-  document.getElementById('kpiPnl').innerHTML        = `<span class="${cls}">${totalPnl >= 0 ? '+' : ''}${fmtUSD(totalPnl)}</span>`;
+  document.getElementById('kpiPnl').innerHTML        = `<span class="${cls}">${totalPnl>=0?'+':''}${fmtUSD(totalPnl)}</span>`;
   document.getElementById('kpiPnlSub').innerHTML     = `<span class="${cls}">${fmtPct(totalPnlPct)}</span>`;
+
   const sorted = [...items].sort((a, b) => b.pnlPct - a.pnlPct);
   const best = sorted[0], worst = sorted[sorted.length - 1];
+
   if (best?.price) {
     document.getElementById('kpiBest').innerHTML    = `<span class="pos">${best.ticker}</span>`;
     document.getElementById('kpiBestSub').innerHTML = `<span class="pos">${fmtPct(best.pnlPct)}</span>`;
@@ -736,20 +1021,33 @@ function renderKPIs() {
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   TABLA DE POSICIONES (con columnas Sector y País de FMP)
+/* ══════════════════════════════════════════════════════════════════
+   ██  TABLA DE POSICIONES — con botón de análisis individual (v3)
+   ══════════════════════════════════════════════════════════════════
+
+   NUEVA COLUMNA "✦ IA":
+   Cada fila tiene un botón violeta que llama a:
+     openStockModal('TICKER')
+
+   El botón usa onclick con el ticker como string literal.
+   No usamos i (índice) porque el ticker identifica la acción mejor
+   y es más robusto si el usuario reordena el portafolio.
 */
 function renderTable() {
   const { items, totalValue } = calcTotals();
   const body = document.getElementById('holdingsBody');
   body.innerHTML = '';
+
   items.forEach((h, i) => {
     const w    = totalValue > 0 ? (h.value / totalValue * 100) : 0;
     const fund = fundamentals[h.ticker] || {};
+
+    /* Cambio del día: verde si positivo, rojo si negativo, guión si no disponible */
     const dayChg = h.change != null
       ? `<span class="${h.change >= 0 ? 'pos' : 'neg'}">${h.change >= 0 ? '+' : ''}${fmt(h.change)}%</span>`
       : '—';
     const pnlCls = h.pnlPct >= 0 ? 'pos' : 'neg';
+
     body.innerHTML += `<tr>
       <td><span class="ticker-badge">${h.ticker}</span></td>
       <td class="mono">${fmt(h.shares, 0)}</td>
@@ -757,127 +1055,123 @@ function renderTable() {
       <td class="mono">${fmtUSD(h.value)}</td>
       <td>${dayChg}</td>
       <td><span class="${pnlCls}">${h.pnlPct >= 0 ? '+' : ''}${fmt(h.pnlPct)}%</span></td>
-      <td><span class="sector-pill">${fund.sector || '—'}</span></td>
+      <td><span class="sector-pill">${fund.sector  || '—'}</span></td>
       <td><span class="geo-pill">${fund.country || '—'}</span></td>
       <td>
-        <span style="color:var(--muted);font-size:11px">${fmt(w, 1)}%</span>
-        <span class="bar-wrap"><span class="bar-fill" style="width:${Math.min(w,100)}%;background:${COLORS[i % COLORS.length]}"></span></span>
+        <span style="color:var(--muted);font-size:11px">${fmt(w,1)}%</span>
+        <span class="bar-wrap">
+          <span class="bar-fill" style="width:${Math.min(w,100)}%;background:${COLORS[i%COLORS.length]}"></span>
+        </span>
       </td>
-      <td><span style="cursor:pointer;color:var(--muted)" onclick="removeHolding(${i})">×</span></td>
+
+      <!-- BOTÓN DE ANÁLISIS INDIVIDUAL (nuevo en v3)
+           onclick llama a openStockModal con el ticker como argumento.
+           El ticker se pasa como string entre comillas simples dentro del HTML. -->
+      <td>
+        <button class="btn btn-purple btn-sm"
+                onclick="openStockModal('${h.ticker}')"
+                title="Analizar ${h.ticker} con IA">
+          ✦
+        </button>
+      </td>
+
+      <!-- Botón eliminar: pasa el índice i para removeHolding() -->
+      <td>
+        <span style="cursor:pointer;color:var(--muted);font-size:14px"
+              onclick="removeHolding(${i})">×</span>
+      </td>
     </tr>`;
   });
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   TABLA DE FUNDAMENTALES
-   ═══════════════════════════════════════════════════════════════
-   Muestra los datos de FMP para cada ticker.
-   Si aún no se han cargado, muestra "—".
-
-   Columnas explicadas:
-   • Compra $      → costBasis ingresado por el usuario
-   • Actual $      → precio de mercado (Yahoo Finance)
-   • Div/acc $     → dividendo anual por acción (FMP lastDiv)
-   • Yield %       → (lastDiv / precio_actual) × 100
-   • Obj. Analistas→ targetMedianPrice de FMP
-   • Upside %      → (targetPrice - actualPrice) / actualPrice × 100
-                     Verde si positivo (potencial subida), rojo si negativo
-   • P/E           → Price/Earnings (cuánto pagas por cada $ de beneficio)
-                     Típicamente: <15 barato, 15-25 razonable, >25 caro
-   • EPS $         → Earnings Per Share (beneficio por acción)
-   • ROE %         → Return on Equity (rentabilidad sobre capital propio)
-                     >15% se considera bueno en general
-   • PEG           → P/E dividido entre tasa de crecimiento
-                     <1 puede indicar acción barata relativa al crecimiento
+/* ══════════════════════════════════════════════════════════════════
+   ██  TABLA DE FUNDAMENTALES
 */
 function renderFundamentals() {
   const body = document.getElementById('fundBody');
-
-  /* Si no hay fundamentales cargados aún, mostrar mensaje */
   if (Object.keys(fundamentals).length === 0) {
     body.innerHTML = '<tr class="loading-row"><td colspan="11">Pulsa "⬡ Fundamentales" para cargar datos desde FMP</td></tr>';
     return;
   }
-
   body.innerHTML = '';
   portfolio.forEach(h => {
-    const fund = fundamentals[h.ticker] || {};
+    const f      = fundamentals[h.ticker] || {};
     const actual = h.price;
-
-    /* Yield = dividendo / precio actual × 100 */
-    const yieldPct = (fund.lastDiv && actual) ? (fund.lastDiv / actual * 100) : null;
-
-    /* Upside = (precio objetivo - precio actual) / precio actual × 100 */
-    const upside = (fund.targetPrice && actual)
-      ? ((fund.targetPrice - actual) / actual * 100)
-      : null;
+    const yieldPct = (f.lastDiv && actual) ? (f.lastDiv / actual * 100) : null;
+    const upside   = (f.targetPrice && actual)
+      ? ((f.targetPrice - actual) / actual * 100) : null;
+    const roePct   = f.roe != null ? f.roe * 100 : null;
     const upsideCls = upside == null ? '' : upside >= 0 ? 'upside-pos' : 'upside-neg';
-
-    /* ROE viene en decimal de FMP (ej: 0.1543 = 15.43%) — multiplicamos × 100 */
-    const roePct = fund.roe != null ? fund.roe * 100 : null;
 
     body.innerHTML += `<tr>
       <td><span class="ticker-badge">${h.ticker}</span></td>
       <td>${fmtUSD(h.costBasis)}</td>
       <td>${actual != null ? fmtUSD(actual) : '—'}</td>
-      <td>${fund.lastDiv != null ? fmtUSD(fund.lastDiv) : '—'}</td>
+      <td>${f.lastDiv ? fmtUSD(f.lastDiv) : '—'}</td>
       <td>${yieldPct != null ? fmt(yieldPct) + '%' : '—'}</td>
-      <td>${fund.targetPrice != null ? fmtUSD(fund.targetPrice) : '—'}</td>
-      <td class="${upsideCls}">${upside != null ? (upside >= 0 ? '+' : '') + fmt(upside) + '%' : '—'}</td>
-      <td>${fund.pe != null ? fmt(fund.pe, 1) : '—'}</td>
-      <td>${fund.eps != null ? fmtUSD(fund.eps) : '—'}</td>
+      <td>${f.targetPrice != null ? fmtUSD(f.targetPrice) : '—'}</td>
+      <td class="${upsideCls}">${upside != null ? (upside>=0?'+':'') + fmt(upside) + '%' : '—'}</td>
+      <td>${f.pe  != null ? fmt(f.pe,  1) : '—'}</td>
+      <td>${f.eps != null ? fmtUSD(f.eps)  : '—'}</td>
       <td>${roePct != null ? fmt(roePct, 1) + '%' : '—'}</td>
-      <td>${fund.peg != null ? fmt(fund.peg, 2) : '—'}</td>
+      <td>${f.peg != null ? fmt(f.peg, 2)  : '—'}</td>
     </tr>`;
   });
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   GRÁFICOS — Chart.js
-   ═══════════════════════════════════════════════════════════════
-   renderCharts() destruye y recrea los 5 gráficos:
-   1. chartBar       → cambio % del día por ticker (barras)
-   2. chartYTD       → rendimiento YTD por ticker (barras horizontales)
-   3. chartSector    → valor del portafolio por sector (dona)
-   4. chartGeo       → valor del portafolio por geografía (dona)
-   5. chartDoughnut  → distribución total del portafolio (dona)
+/* ══════════════════════════════════════════════════════════════════
+   ██  GRÁFICOS — Chart.js
+   ══════════════════════════════════════════════════════════════════
+   Siempre destruimos los gráficos anteriores antes de crear nuevos.
+   Esto es obligatorio en Chart.js para evitar memory leaks y
+   el error "Canvas is already in use".
+
+   GRÁFICOS:
+   1. chartBar      → cambio % del día (barras verdes/rojas)
+   2. chartYTD      → rendimiento YTD desde 1 enero (barras azules/rojas)
+   3. chartSector   → valor del portafolio por sector (dona)
+   4. chartGeo      → valor del portafolio por país (dona)
+   5. chartDoughnut → distribución total del portafolio por ticker (dona)
 */
 function renderCharts() {
-  const { items, totalValue } = calcTotals();
+  const { items } = calcTotals();
 
-  /* Destruir gráficos anteriores para liberar memoria */
-  [chartBar, chartDoughnut, chartSector, chartGeo, chartYTD].forEach(c => { if (c) c.destroy(); });
+  /* Destruir gráficos previos */
+  [chartBar, chartYTD, chartSector, chartGeo, chartDoughnut].forEach(c => c?.destroy());
 
   const labels = items.map(h => h.ticker);
   const colors = items.map((_, i) => COLORS[i % COLORS.length]);
-
-  /* Opciones base reutilizadas en todos los gráficos */
   const baseOpts = { responsive: true, maintainAspectRatio: false };
-  const darkTick = { color: '#64748b' };
-  const darkGrid = { color: '#1e2d45' };
+  const darkAxis = { ticks: { color: '#64748b' }, grid: { color: '#1e2d45' } };
 
-  /* ── 1. GRÁFICO DE BARRAS: CAMBIO % DEL DÍA ──────────────── */
+  /* ── 1. BARRAS: CAMBIO % DEL DÍA ──────────────────────────── */
   chartBar = new Chart(document.getElementById('chartBar').getContext('2d'), {
     type: 'bar',
     data: {
       labels,
       datasets: [{
         data: items.map(h => h.change != null ? +h.change.toFixed(2) : 0),
-        backgroundColor: items.map(h => (h.change ?? 0) >= 0 ? 'rgba(16,185,129,0.75)' : 'rgba(239,68,68,0.75)'),
+        /* Verde si positivo, rojo si negativo */
+        backgroundColor: items.map(h => (h.change ?? 0) >= 0
+          ? 'rgba(16,185,129,0.75)' : 'rgba(239,68,68,0.75)'),
         borderRadius: 6, borderSkipped: false,
       }]
     },
-    options: { ...baseOpts, plugins: { legend: { display: false } },
-      scales: { x: { ticks: darkTick, grid: darkGrid }, y: { ticks: { ...darkTick, callback: v => v + '%' }, grid: darkGrid } }
+    options: { ...baseOpts,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: darkAxis,
+        y: { ...darkAxis, ticks: { color:'#64748b', callback: v => v + '%' } }
+      }
     }
   });
 
-  /* ── 2. GRÁFICO YTD (Year To Date) ───────────────────────────
-     Muestra el rendimiento acumulado desde el 1 de enero.
-     Fuente: FMP endpoint /v3/historical-price-full con fecha de inicio de año.
-     Si no hay datos de FMP, se muestra 0 para todos. */
+  /* ── 2. BARRAS: YTD (YEAR TO DATE) ────────────────────────────
+     YTD = rendimiento acumulado desde el 1 de enero hasta hoy.
+     Fuente: FMP histórico de inicio de año.
+     Si no hay datos de FMP, muestra 0. */
   const ytdData = items.map(h => {
     const f = fundamentals[h.ticker];
     return f?.ytdChange != null ? +f.ytdChange.toFixed(2) : 0;
@@ -889,101 +1183,265 @@ function renderCharts() {
       datasets: [{
         label: 'YTD %',
         data: ytdData,
-        backgroundColor: ytdData.map(v => v >= 0 ? 'rgba(59,130,246,0.75)' : 'rgba(239,68,68,0.75)'),
+        backgroundColor: ytdData.map(v => v >= 0
+          ? 'rgba(59,130,246,0.75)' : 'rgba(239,68,68,0.75)'),
         borderRadius: 6, borderSkipped: false,
       }]
     },
-    options: { ...baseOpts, plugins: { legend: { display: false } },
-      scales: { x: { ticks: darkTick, grid: darkGrid }, y: { ticks: { ...darkTick, callback: v => v + '%' }, grid: darkGrid } }
+    options: { ...baseOpts,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: darkAxis,
+        y: { ...darkAxis, ticks: { color:'#64748b', callback: v => v + '%' } }
+      }
     }
   });
 
-  /* ── 3. CLUSTERING POR SECTOR ────────────────────────────────
-     Agrupa el valor total (en $) de las posiciones por sector económico.
+  /* ── 3. DONA: CLUSTERING POR SECTOR ────────────────────────────
      Algoritmo:
-     1. Para cada holding, buscar su sector en fundamentals[ticker].sector
-     2. Sumar el valor (price × shares) al bucket del sector correspondiente
-     3. Dibujar una dona con esos buckets
+     1. Inicializar un Map vacío: sectorMap = {}
+     2. Para cada holding: sectorMap[sector] += h.value
+     3. Dibujar dona con los pares {sector, valor_acumulado}
 
-     Sectores típicos de FMP: Technology, Healthcare, Financial Services,
-     Consumer Cyclical, Communication Services, Industrials, etc.
-  */
+     Los sectores vienen de FMP profile.sector.
+     Si no hay datos de FMP: aparece "Sin datos". */
   const sectorMap = {};
   items.forEach(h => {
     const s = fundamentals[h.ticker]?.sector || 'Sin datos';
     sectorMap[s] = (sectorMap[s] || 0) + h.value;
   });
-  const sectorLabels = Object.keys(sectorMap);
-  const sectorValues = sectorLabels.map(s => +sectorMap[s].toFixed(2));
-  const sectorColors = sectorLabels.map((_, i) => COLORS[i % COLORS.length]);
-
   chartSector = new Chart(document.getElementById('chartSector').getContext('2d'), {
     type: 'doughnut',
-    data: { labels: sectorLabels, datasets: [{ data: sectorValues, backgroundColor: sectorColors, borderWidth: 2, borderColor: '#1a2235' }] },
-    options: {
-      ...baseOpts, cutout: '60%',
+    data: {
+      labels: Object.keys(sectorMap),
+      datasets: [{
+        data: Object.values(sectorMap).map(v => +v.toFixed(2)),
+        backgroundColor: Object.keys(sectorMap).map((_, i) => COLORS[i % COLORS.length]),
+        borderWidth: 2, borderColor: '#1a2235'
+      }]
+    },
+    options: { ...baseOpts, cutout: '60%',
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 10, boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${ctx.parsed.toLocaleString('de-DE', {maximumFractionDigits:0})}` } }
+        legend: { position: 'bottom', labels: { color:'#e2e8f0', font:{size:11}, padding:8, boxWidth:12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmtUSD(ctx.parsed)}` } }
       }
     }
   });
 
-  /* ── 4. CLUSTERING POR GEOGRAFÍA ─────────────────────────────
-     Igual que el de sector pero usando fundamentals[ticker].country.
-     FMP devuelve el país de incorporación (ej: "US", "DE", "CH").
-     Para ETFs que invierten globalmente, el país suele ser "US"
-     (sede del fondo), no el de los activos subyacentes.
-
-     MEJORA POSIBLE: Añadir una lista manual de overrides para ETFs,
-     ej: { 'EWG': 'Germany', 'VGK': 'Europe', 'FXI': 'China' }
-  */
+  /* ── 4. DONA: CLUSTERING POR GEOGRAFÍA ─────────────────────────
+     Mismo algoritmo que sector pero usando profile.country.
+     FMP devuelve el país de incorporación (ej: "US", "DE", "TW").
+     NOTA: Para ETFs como SPY, el país es "US" (sede del fondo),
+     no el de los activos subyacentes. */
   const geoMap = {};
   items.forEach(h => {
     const c = fundamentals[h.ticker]?.country || 'Sin datos';
     geoMap[c] = (geoMap[c] || 0) + h.value;
   });
-  const geoLabels = Object.keys(geoMap);
-  const geoValues = geoLabels.map(g => +geoMap[g].toFixed(2));
-  const geoColors = geoLabels.map((_, i) => COLORS[(i + 3) % COLORS.length]); /* offset de 3 para diferenciar colores del gráfico de sector */
-
   chartGeo = new Chart(document.getElementById('chartGeo').getContext('2d'), {
     type: 'doughnut',
-    data: { labels: geoLabels, datasets: [{ data: geoValues, backgroundColor: geoColors, borderWidth: 2, borderColor: '#1a2235' }] },
-    options: {
-      ...baseOpts, cutout: '60%',
+    data: {
+      labels: Object.keys(geoMap),
+      datasets: [{
+        data: Object.values(geoMap).map(v => +v.toFixed(2)),
+        /* Offset de 3 en la paleta para diferenciar colores del gráfico de sector */
+        backgroundColor: Object.keys(geoMap).map((_, i) => COLORS[(i + 3) % COLORS.length]),
+        borderWidth: 2, borderColor: '#1a2235'
+      }]
+    },
+    options: { ...baseOpts, cutout: '60%',
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 10, boxWidth: 12 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${ctx.parsed.toLocaleString('de-DE', {maximumFractionDigits:0})}` } }
+        legend: { position: 'bottom', labels: { color:'#e2e8f0', font:{size:11}, padding:8, boxWidth:12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmtUSD(ctx.parsed)}` } }
       }
     }
   });
 
-  /* ── 5. DISTRIBUCIÓN TOTAL DEL PORTAFOLIO ────────────────────
-     Valor en $ de cada posición individual */
+  /* ── 5. DONA: DISTRIBUCIÓN TOTAL DEL PORTAFOLIO ─────────────── */
   chartDoughnut = new Chart(document.getElementById('chartDoughnut').getContext('2d'), {
     type: 'doughnut',
     data: {
       labels,
-      datasets: [{ data: items.map(h => +h.value.toFixed(2)), backgroundColor: colors, borderWidth: 2, borderColor: '#1a2235' }]
+      datasets: [{
+        data: items.map(h => +h.value.toFixed(2)),
+        backgroundColor: colors, borderWidth: 2, borderColor: '#1a2235'
+      }]
     },
-    options: {
-      ...baseOpts, cutout: '65%',
+    options: { ...baseOpts, cutout: '65%',
       plugins: {
-        legend: { position: 'right', labels: { color: '#e2e8f0', font: { size: 12 }, padding: 12 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${ctx.parsed.toLocaleString('de-DE', {maximumFractionDigits:0})}` } }
+        legend: { position: 'right', labels: { color:'#e2e8f0', font:{size:12}, padding:12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmtUSD(ctx.parsed)}` } }
       }
     }
   });
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   ALERTAS
+/* ══════════════════════════════════════════════════════════════════
+   ██  MODAL DE ANÁLISIS INDIVIDUAL (NUEVO v3)
+   ══════════════════════════════════════════════════════════════════
+
+   openStockModal(ticker):
+     1. Guarda el ticker en stockAnalysisTicker
+     2. Busca el holding en portfolio[]
+     3. Busca los fundamentales en fundamentals{}
+     4. Rellena la cabecera del modal (ticker, precio, P&L)
+     5. Genera los "chips" de datos rápidos
+     6. Abre el modal
+
+   closeStockModal():
+     Cierra el modal quitando la clase "open".
+
+   runStockAnalysis():
+     Lee el tipo de análisis del select del modal,
+     construye un prompt detallado sobre ESA acción,
+     llama a Claude y muestra la respuesta en smOutput.
 */
-function populateAlertTicker() {
-  document.getElementById('alertTicker').innerHTML = portfolio.map(h => `<option>${h.ticker}</option>`).join('');
+
+/* Abre el modal de análisis individual para un ticker específico */
+function openStockModal(ticker) {
+  /* Guardar el ticker activo para usarlo en runStockAnalysis() */
+  stockAnalysisTicker = ticker;
+
+  const h    = portfolio.find(p => p.ticker === ticker);
+  const f    = fundamentals[ticker] || {};
+  const pnl  = h ? ((h.price ?? h.costBasis) - h.costBasis) / h.costBasis * 100 : null;
+  const pnlCls = pnl == null ? '' : pnl >= 0 ? 'color:var(--accent2)' : 'color:var(--danger)';
+
+  /* Rellenar cabecera del modal */
+  document.getElementById('smTicker').textContent = ticker;
+  document.getElementById('smSector').textContent =
+    [f.sector, f.country].filter(x => x && x !== '—').join(' · ') || 'Sin datos de FMP';
+  document.getElementById('smPrice').textContent =
+    h?.price ? fmtUSD(h.price) : (h ? fmtUSD(h.costBasis) + ' (base)' : '—');
+  document.getElementById('smPnl').innerHTML =
+    pnl != null
+      ? `<span style="${pnlCls}">${pnl >= 0 ? '+' : ''}${fmt(pnl)}% vs compra</span>`
+      : '<span style="color:var(--muted)">P&L no disponible</span>';
+
+  /* Generar chips de datos rápidos.
+     Cada chip muestra un dato clave de la acción. */
+  const roePct   = f.roe  != null ? fmt(f.roe * 100, 1) + '%' : '—';
+  const yieldPct = (f.lastDiv && h?.price) ? fmt(f.lastDiv / h.price * 100) + '%' : '—';
+  const upside   = (f.targetPrice && h?.price)
+    ? ((f.targetPrice - h.price) / h.price * 100) : null;
+  const upsideStr = upside != null
+    ? `<span style="${upside >= 0 ? 'color:var(--accent2)' : 'color:var(--danger)'}">
+        ${upside >= 0 ? '+' : ''}${fmt(upside)}%</span>` : '—';
+
+  const chips = [
+    { label: 'Precio compra', value: fmtUSD(h?.costBasis) },
+    { label: 'Acciones',      value: h ? fmt(h.shares, 0) : '—' },
+    { label: 'Valor posición',value: h ? fmtUSD((h.price ?? h.costBasis) * h.shares) : '—' },
+    { label: 'YTD',           value: f.ytdChange != null ? fmtPct(f.ytdChange) : '—' },
+    { label: 'P/E',           value: f.pe  != null ? fmt(f.pe,  1) : '—' },
+    { label: 'EPS',           value: f.eps != null ? fmtUSD(f.eps) : '—' },
+    { label: 'ROE',           value: roePct },
+    { label: 'PEG',           value: f.peg != null ? fmt(f.peg, 2) : '—' },
+    { label: 'Dividendo/acc', value: f.lastDiv ? fmtUSD(f.lastDiv) : 'Sin div.' },
+    { label: 'Yield',         value: yieldPct },
+    { label: 'Obj. Analistas',value: f.targetPrice ? fmtUSD(f.targetPrice) : '—' },
+    /* El upside usa innerHTML para el color, lo insertamos diferente */
+    { label: 'Upside',        value: null, html: upsideStr },
+  ];
+
+  document.getElementById('smChips').innerHTML = chips.map(c => `
+    <div class="chip">
+      <span class="chip-label">${c.label}</span>
+      <span class="chip-value">${c.html || c.value}</span>
+    </div>`).join('');
+
+  /* Limpiar output anterior y abrir modal */
+  document.getElementById('smOutput').innerHTML =
+    '<span class="thinking">Pulsa "✦ Analizar con IA" para obtener el análisis.</span>';
+  document.getElementById('stockModal').classList.add('open');
 }
+
+function closeStockModal() {
+  document.getElementById('stockModal').classList.remove('open');
+  stockAnalysisTicker = null;
+}
+
+/* Ejecuta el análisis de IA para el ticker activo en el modal */
+async function runStockAnalysis() {
+  if (!stockAnalysisTicker) return;
+
+  const ticker    = stockAnalysisTicker;
+  const h         = portfolio.find(p => p.ticker === ticker);
+  const f         = fundamentals[ticker] || {};
+  const promptType = document.getElementById('smPromptSelect').value;
+  const out       = document.getElementById('smOutput');
+
+  out.innerHTML = `<span class="thinking">⏳ Claude analizando ${ticker}...</span>`;
+
+  /* Construir contexto completo de la acción para el prompt */
+  const roePct   = f.roe != null ? (f.roe * 100).toFixed(1) + '%' : 'n/d';
+  const yieldPct = (f.lastDiv && h?.price)
+    ? (f.lastDiv / h.price * 100).toFixed(2) + '%' : 'n/d';
+  const upside = (f.targetPrice && h?.price)
+    ? ((f.targetPrice - h.price) / h.price * 100).toFixed(1) + '%' : 'n/d';
+
+  /* Resumen de la acción para incluir en cualquier prompt */
+  const ctx = `
+Acción: ${ticker}
+Sector: ${f.sector || 'n/d'} | País: ${f.country || 'n/d'}
+Precio actual: ${h?.price ? '$' + h.price.toFixed(2) : 'n/d'} | Precio de compra: $${h?.costBasis ?? 'n/d'}
+P&L vs compra: ${h ? fmtPct((((h.price??h.costBasis) - h.costBasis)/h.costBasis)*100) : 'n/d'}
+YTD: ${f.ytdChange != null ? fmtPct(f.ytdChange) : 'n/d'}
+P/E: ${f.pe != null ? f.pe.toFixed(1) : 'n/d'} | EPS: ${f.eps != null ? '$'+f.eps.toFixed(2) : 'n/d'}
+ROE: ${roePct} | PEG: ${f.peg != null ? f.peg.toFixed(2) : 'n/d'}
+Dividendo anual: ${f.lastDiv ? '$'+f.lastDiv : 'Sin dividendo'} | Yield: ${yieldPct}
+Precio objetivo analistas: ${f.targetPrice ? '$'+f.targetPrice.toFixed(2) : 'n/d'} | Upside: ${upside}
+Número de acciones en portafolio: ${h?.shares ?? 'n/d'}
+  `.trim();
+
+  /* Prompts por tipo de análisis — personalizados para una sola acción */
+  const prompts = {
+    completo: `Eres un analista financiero experto. Analiza esta acción en detalle:\n\n${ctx}\n\nDa en español un análisis completo: 1) Situación actual de la empresa, 2) Valoración (¿está cara o barata?), 3) Calidad del negocio (ROE, márgenes), 4) Perspectivas, 5) Recomendación: ¿mantener, comprar más o reducir?`,
+    tecnico:  `Eres un analista de valoración fundamental. Datos de ${ticker}:\n\n${ctx}\n\nAnaliza en español: 1) Si el P/E está justificado vs el sector, 2) Lo que el PEG indica sobre el crecimiento esperado, 3) La calidad del ROE, 4) Si el EPS es sólido o volátil, 5) Conclusión de valoración numérica.`,
+    dividendo:`Eres un especialista en inversión por dividendos. Datos de ${ticker}:\n\n${ctx}\n\nAnaliza en español: 1) Es el dividendo sostenible (vs EPS y FCF), 2) El yield es atractivo vs el sector, 3) Historial de crecimiento del dividendo (si lo conoces), 4) Riesgo de recorte, 5) Es adecuado para una estrategia de renta.`,
+    comprar:  `Eres un gestor de portafolios. Datos de ${ticker} en mi portafolio:\n\n${ctx}\n\nDime en español: 1) Los 3 argumentos más fuertes para COMPRAR MÁS, 2) Los 3 argumentos más fuertes para REDUCIR o VENDER, 3) A qué precio sería interesante añadir más, 4) A qué precio convendría reducir, 5) Tu recomendación final con justificación.`,
+    riesgo:   `Eres un gestor de riesgo. Datos de ${ticker}:\n\n${ctx}\n\nIdentifica en español: 1) Los 3 principales riesgos específicos de esta empresa, 2) Riesgos del sector, 3) Riesgos macroeconómicos que la afectan, 4) Señales de alerta en los fundamentales (P/E alto, ROE bajo, etc.), 5) Nivel de riesgo general 1-10 con justificación.`,
+  };
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompts[promptType] }]
+      })
+    });
+    const data = await resp.json();
+    const text = data?.content?.[0]?.text || 'Sin respuesta.';
+    /* Renderizar con formato básico */
+    out.innerHTML = text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^(\d+\).*)/gm, '<span class="label">$1</span>')
+      .replace(/\n/g, '<br>');
+  } catch (e) {
+    out.innerHTML = '<span class="thinking">⚠ Error con la API de Claude.</span>';
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   ██  ALERTAS DE PRECIO
+   ══════════════════════════════════════════════════════════════════
+   Estructura: { ticker, type: "above"|"below", price, triggered: bool }
+   Se comprueban en checkAlerts() después de cada actualización de precios.
+   Una vez triggered = true, no se vuelve a disparar (hay que eliminar y recrear).
+*/
+
+/* Sincroniza el <select> de tickers con el portafolio actual */
+function populateAlertTicker() {
+  document.getElementById('alertTicker').innerHTML =
+    portfolio.map(h => `<option>${h.ticker}</option>`).join('');
+}
+
+/* Crea una nueva alerta desde los inputs del formulario */
 function addAlert() {
   const ticker = document.getElementById('alertTicker').value;
   const type   = document.getElementById('alertType').value;
@@ -994,43 +1452,66 @@ function addAlert() {
   document.getElementById('alertPrice').value = '';
   showToast(`Alerta: ${ticker} ${type === 'above' ? '↑' : '↓'} $${price}`);
 }
+
+/* Regenera la lista visual de alertas */
 function renderAlerts() {
   const el = document.getElementById('alertsList');
-  if (!alerts.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px 0">Sin alertas activas.</div>'; return; }
+  if (!alerts.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px 0">Sin alertas.</div>';
+    return;
+  }
   el.innerHTML = alerts.map((a, i) => `
     <div class="alert-item">
-      <span><strong>${a.ticker}</strong> ${a.type === 'above' ? '↑' : '↓'} <span style="color:var(--accent)">$${a.price}</span>
-      ${a.triggered ? ' <span style="color:var(--accent2);font-size:10px">✓</span>' : ''}</span>
+      <span>
+        <strong>${a.ticker}</strong> ${a.type === 'above' ? '↑' : '↓'}
+        <span style="color:var(--accent)">$${a.price}</span>
+        ${a.triggered ? ' <span style="color:var(--accent2);font-size:10px">✓ disparada</span>' : ''}
+      </span>
       <span class="del" onclick="removeAlert(${i})">×</span>
     </div>`).join('');
 }
+
 function removeAlert(i) { alerts.splice(i, 1); save(); renderAlerts(); }
+
+/* Comprueba si alguna alerta debe dispararse con los precios actuales */
 function checkAlerts() {
   alerts.forEach(a => {
     const h = portfolio.find(p => p.ticker === a.ticker);
     if (!h || h.price == null || a.triggered) return;
-    if ((a.type === 'above' && h.price >= a.price) || (a.type === 'below' && h.price <= a.price)) {
+    const fired =
+      (a.type === 'above' && h.price >= a.price) ||
+      (a.type === 'below' && h.price <= a.price);
+    if (fired) {
       a.triggered = true;
-      showToast(`🔔 ${a.ticker} ${a.type === 'above' ? 'superó' : 'bajó de'} $${a.price} (actual: $${h.price.toFixed(2)})`, 6000);
+      showToast(`🔔 ${a.ticker} ${a.type==='above'?'superó':'bajó de'} $${a.price} (actual: $${h.price.toFixed(2)})`, 6000);
+      /* EXTENSIÓN: aquí puedes añadir un fetch() a tu webhook de Make.com:
+         fetch('https://hook.make.com/TU-ID', { method:'POST',
+           headers:{'Content-Type':'application/json'},
+           body: JSON.stringify({ ticker: a.ticker, price: h.price, target: a.price })
+         }); */
     }
   });
   save(); renderAlerts();
 }
+
 function testAlert() {
-  const email = document.getElementById('emailInput').value;
-  showToast(email ? `✉ Test → ${email}` : '🔔 Alerta de prueba activada');
+  showToast(document.getElementById('emailInput').value
+    ? `✉ Test → ${document.getElementById('emailInput').value}` : '🔔 Alerta de prueba');
 }
+
+/* Genera URL de webhook de ejemplo para Make.com / n8n */
 function generateWebhook() {
   const id = Math.random().toString(36).slice(2, 10);
   document.getElementById('webhookOut').textContent = `https://hook.make.com/depot-${id}`;
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   MODAL — AÑADIR Y ELIMINAR HOLDINGS
+/* ══════════════════════════════════════════════════════════════════
+   ██  MODAL AÑADIR POSICIÓN
 */
 function openModal()  { document.getElementById('modal').classList.add('open'); }
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
 function addHolding() {
   const ticker = document.getElementById('mTicker').value.trim().toUpperCase();
   const shares = parseFloat(document.getElementById('mShares').value);
@@ -1041,6 +1522,7 @@ function addHolding() {
   showToast(`${ticker} añadido. Actualiza precios y fundamentales.`);
   ['mTicker','mShares','mCost'].forEach(id => document.getElementById(id).value = '');
 }
+
 function removeHolding(i) {
   if (!confirm(`¿Eliminar ${portfolio[i].ticker}?`)) return;
   portfolio.splice(i, 1);
@@ -1048,18 +1530,19 @@ function removeHolding(i) {
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   EXPORTAR A EXCEL
-   Combina datos de posiciones + fundamentales en una sola hoja.
+/* ══════════════════════════════════════════════════════════════════
+   ██  EXPORTAR A EXCEL
+   Combina datos de portfolio[] y fundamentals{} en una sola hoja.
+   Añade una fila de totales al final.
 */
 function exportExcel() {
   const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
   const rows = items.map(h => {
-    const fund     = fundamentals[h.ticker] || {};
-    const actual   = h.price;
-    const yieldPct = (fund.lastDiv && actual) ? +(fund.lastDiv / actual * 100).toFixed(2) : null;
-    const upside   = (fund.targetPrice && actual) ? +((fund.targetPrice - actual) / actual * 100).toFixed(2) : null;
-    const roePct   = fund.roe != null ? +(fund.roe * 100).toFixed(2) : null;
+    const f      = fundamentals[h.ticker] || {};
+    const actual = h.price;
+    const yieldPct = (f.lastDiv && actual) ? +(f.lastDiv / actual * 100).toFixed(2) : null;
+    const upside   = (f.targetPrice && actual) ? +((f.targetPrice - actual) / actual * 100).toFixed(2) : null;
+    const roePct   = f.roe != null ? +(f.roe * 100).toFixed(2) : null;
     return {
       'Ticker':           h.ticker,
       'Acciones':         h.shares,
@@ -1069,65 +1552,59 @@ function exportExcel() {
       'P&L $':            +h.pnl.toFixed(2),
       'P&L %':            +h.pnlPct.toFixed(2),
       'Hoy %':            h.change != null ? +h.change.toFixed(2) : '—',
-      'YTD %':            fund.ytdChange != null ? +fund.ytdChange.toFixed(2) : '—',
+      'YTD %':            f.ytdChange != null ? +f.ytdChange.toFixed(2) : '—',
       'Peso %':           +(h.value / totalValue * 100).toFixed(2),
-      'Sector':           fund.sector   || '—',
-      'País':             fund.country  || '—',
-      'Div/acc $':        fund.lastDiv  || '—',
-      'Yield %':          yieldPct      ?? '—',
-      'Obj. Analistas $': fund.targetPrice ?? '—',
-      'Upside %':         upside        ?? '—',
-      'P/E':              fund.pe       ?? '—',
-      'EPS $':            fund.eps      ?? '—',
-      'ROE %':            roePct        ?? '—',
-      'PEG':              fund.peg      ?? '—',
+      'Sector':           f.sector       || '—',
+      'País':             f.country      || '—',
+      'Div/acc $':        f.lastDiv      || '—',
+      'Yield %':          yieldPct       ?? '—',
+      'Obj. Analistas $': f.targetPrice  ?? '—',
+      'Upside %':         upside         ?? '—',
+      'P/E':              f.pe           ?? '—',
+      'EPS $':            f.eps          ?? '—',
+      'ROE %':            roePct         ?? '—',
+      'PEG':              f.peg          ?? '—',
     };
   });
   rows.push({});
-  rows.push({ 'Ticker': 'TOTAL', 'Valor Total $': +totalValue.toFixed(2), 'P&L $': +totalPnl.toFixed(2), 'P&L %': +totalPnlPct.toFixed(2) });
+  rows.push({ 'Ticker':'TOTAL', 'Valor Total $':+totalValue.toFixed(2),
+    'P&L $':+totalPnl.toFixed(2), 'P&L %':+totalPnlPct.toFixed(2) });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, ws, 'Portafolio');
-  XLSX.writeFile(wb, `depot_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `depot_${new Date().toISOString().slice(0,10)}.xlsx`);
   showToast('✅ Excel descargado');
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   ANÁLISIS IA — Claude API
-   En v2 se añade el modo "fundamentals" que incluye P/E, EPS, ROE, PEG
-   en el prompt para que Claude pueda dar análisis más profundos.
+/* ══════════════════════════════════════════════════════════════════
+   ██  ANÁLISIS IA — PORTAFOLIO COMPLETO
+   ══════════════════════════════════════════════════════════════════
+   Analiza el portafolio completo (todos los tickers a la vez).
+   Para análisis de una sola acción, ver runStockAnalysis().
 */
 async function runAIAnalysis() {
-  const { items, totalValue, totalCost, totalPnl, totalPnlPct } = calcTotals();
+  const { items, totalValue, totalPnlPct } = calcTotals();
   const promptType = document.getElementById('aiPromptSelect').value;
   const out = document.getElementById('aiOutput');
-  out.innerHTML = '<span class="thinking">⏳ Claude analizando...</span>';
+  out.innerHTML = '<span class="thinking">⏳ Claude analizando el portafolio...</span>';
 
-  /* Resumen de posiciones + fundamentales para el prompt */
+  /* Resumen completo del portafolio para el prompt */
   const summary = items.map(h => {
     const f = fundamentals[h.ticker] || {};
-    const roePct = f.roe != null ? (f.roe * 100).toFixed(1) + '%' : 'n/d';
-    return `${h.ticker}: ${h.shares} acc, precio $${h.price?.toFixed(2) ?? 'n/d'}, ` +
-           `P&L ${h.pnlPct.toFixed(1)}%, YTD ${f.ytdChange?.toFixed(1) ?? 'n/d'}%, ` +
-           `sector ${f.sector || 'n/d'}, país ${f.country || 'n/d'}, ` +
-           `P/E ${f.pe?.toFixed(1) ?? 'n/d'}, EPS $${f.eps?.toFixed(2) ?? 'n/d'}, ` +
-           `ROE ${roePct}, PEG ${f.peg?.toFixed(2) ?? 'n/d'}, ` +
-           `div $${f.lastDiv ?? 'n/d'}, obj. analistas $${f.targetPrice?.toFixed(2) ?? 'n/d'}`;
+    return `${h.ticker}: precio $${h.price?.toFixed(2)??'n/d'}, P&L ${h.pnlPct.toFixed(1)}%, ` +
+           `YTD ${f.ytdChange?.toFixed(1)??'n/d'}%, sector ${f.sector||'n/d'}, ` +
+           `P/E ${f.pe?.toFixed(1)??'n/d'}, ROE ${f.roe!=null?(f.roe*100).toFixed(1)+'%':'n/d'}, ` +
+           `PEG ${f.peg?.toFixed(2)??'n/d'}, obj.analistas $${f.targetPrice?.toFixed(2)??'n/d'}`;
   }).join('\n');
 
   const prompts = {
-    general:
-      `Eres un analista financiero experto. Analiza este portafolio:\n\n${summary}\n\nValor total: $${totalValue.toFixed(0)} | P&L: ${totalPnlPct.toFixed(1)}%\n\nDa en español: 1) Evaluación general, 2) Puntos fuertes, 3) Riesgos, 4) Recomendación accionable.`,
-    risk:
-      `Eres un gestor de riesgo. Portafolio:\n\n${summary}\n\nEvalúa en español: 1) Concentración sectorial/geográfica, 2) Volatilidad implícita por los P/E y PEG, 3) Nivel de riesgo 1-10, 4) Acciones específicas a vigilar.`,
-    rebalance:
-      `Eres un asesor de portafolios. Portafolio:\n\n${summary}\n\nRecomienda en español: 1) Posiciones a reducir (sobre-ponderadas o caras), 2) Posiciones a aumentar, 3) Sectores o regiones que faltan, 4) Allocación objetivo en %.`,
-    fundamentals:
-      `Eres un analista de valoración. Portafolio:\n\n${summary}\n\nAnaliza en español los fundamentales: 1) Qué P/E son altos/bajos vs sector, 2) Cuáles tienen mejor ROE y qué significa, 3) PEG < 1 indica oportunidad? 4) Cuáles tienen mayor upside según analistas y si es creíble.`,
-    macro:
-      `Eres un analista macro. Portafolio (sectores: ${[...new Set(items.map(h => fundamentals[h.ticker]?.sector).filter(Boolean))].join(', ')}).\n\nContexto 2025-2026. Explica en español: 1) Factores macro que afectan este portafolio, 2) Riesgos específicos, 3) Oportunidades.`,
+    general:      `Analiza este portafolio:\n\n${summary}\n\nValor: $${totalValue.toFixed(0)} | P&L: ${totalPnlPct.toFixed(1)}%\n\nDa en español: 1) Evaluación general, 2) Fortalezas, 3) Riesgos, 4) Recomendación.`,
+    risk:         `Portafolio:\n\n${summary}\n\nEvalúa en español: 1) Concentración sectorial/geográfica, 2) Riesgo implícito en P/E y PEG, 3) Nivel de riesgo 1-10, 4) Qué vigilar.`,
+    rebalance:    `Portafolio:\n\n${summary}\n\nRecomienda en español: 1) Qué reducir, 2) Qué aumentar, 3) Qué sectores faltan, 4) Allocación objetivo en %.`,
+    fundamentals: `Portafolio:\n\n${summary}\n\nAnaliza en español: 1) P/E altos/bajos vs sector, 2) Mejor ROE y por qué importa, 3) PEG <1 como oportunidad, 4) Mayor upside de analistas.`,
+    macro:        `Portafolio: ${items.map(h=>h.ticker).join(', ')}. Sectores: ${[...new Set(items.map(h=>fundamentals[h.ticker]?.sector).filter(Boolean))].join(', ')}.\n\nContexto 2025-2026. En español: 1) Factores macro, 2) Riesgos, 3) Oportunidades.`,
   };
 
   try {
@@ -1146,14 +1623,15 @@ async function runAIAnalysis() {
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/^(\d+\).*)/gm, '<span class="label">$1</span>')
       .replace(/\n/g, '<br>');
-  } catch (e) {
+  } catch {
     out.innerHTML = '<span class="thinking">⚠ Error con la API de Claude.</span>';
   }
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   TOAST
+/* ══════════════════════════════════════════════════════════════════
+   ██  TOAST — notificación temporal
+   Aparece en esquina inferior derecha por `duration` milisegundos.
 */
 function showToast(msg, duration = 3000) {
   const t = document.getElementById('toast');
@@ -1163,25 +1641,30 @@ function showToast(msg, duration = 3000) {
 }
 
 
-/* ═══════════════════════════════════════════════════════════════
-   INICIALIZACIÓN
+/* ══════════════════════════════════════════════════════════════════
+   ██  INICIALIZACIÓN
+   ══════════════════════════════════════════════════════════════════
+   Se ejecuta una sola vez al cargar la página.
 */
-/* Recuperar la FMP key guardada previamente */
+
+/* Restaurar la FMP key guardada en sesiones anteriores */
 const savedKey = localStorage.getItem('depot_fmp_key');
 if (savedKey) document.getElementById('fmpKey').value = savedKey;
 
-/* Renderizar interfaz inicial */
+/* Renderizar la interfaz con los datos del localStorage */
 renderAll();
 populateAlertTicker();
 
-/* Si no hay precios, cargar demo para que la UI no aparezca vacía */
+/* Si no hay precios aún (primera carga), usar demo para que la UI
+   no aparezca vacía. El usuario puede actualizarlos con "↻ Precios". */
 if (!portfolio[0].price) {
   useDemoPrices();
   renderAll();
   setStatus('warn');
   document.getElementById('statusText').textContent =
-    'Precios demo · Pulsa "↻ Precios" para Yahoo Finance y "⬡ Fundamentales" para FMP';
-  document.getElementById('lastUpdate').textContent = 'Demo · ' + new Date().toLocaleTimeString('es-ES');
+    'Precios demo cargados · "↻ Precios" para Yahoo Finance · "⬡ Fundamentales" para FMP';
+  document.getElementById('lastUpdate').textContent =
+    'Demo · ' + new Date().toLocaleTimeString('es-ES');
 }
 
 </script>
