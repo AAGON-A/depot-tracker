@@ -761,6 +761,22 @@ function saveFmpKey() { localStorage.setItem('depot_fmp_key', getFmpKey()); }
 
 
 /* ══════════════════════════════════════════════════════════════════
+   ██  HELPERS DE RED — TIMEOUT Y PROXIES CORS
+   ══════════════════════════════════════════════════════════════════
+   fetchWithTimeout(): reemplaza AbortSignal.timeout() que no funciona
+   en todos los contextos (iframes, extensiones, Electron).
+   Usa AbortController + setTimeout manual — compatible en cualquier
+   entorno que soporte la Fetch API.
+*/
+function fetchWithTimeout(url, ms = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
    ██  YAHOO FINANCE — PRECIOS EN TIEMPO REAL
    ══════════════════════════════════════════════════════════════════
    Yahoo Finance no permite llamadas directas desde el navegador
@@ -781,7 +797,7 @@ async function fetchPrice(ticker) {
   ];
   for (const proxy of proxies) {
     try {
-      const r = await fetch(proxy(url), { signal: AbortSignal.timeout(8000) });
+      const r = await fetchWithTimeout(proxy(url), 8000);
       if (!r.ok) continue;
       const d    = await r.json();
       const meta = d?.chart?.result?.[0]?.meta;
@@ -886,25 +902,58 @@ function setStatus(state) {
 
 /* Helper: fetch con timeout de 10s. Devuelve el JSON o null si falla.
    Nunca lanza excepción — los errores se manejan con null. */
+/* ── CORS PROXIES PARA FMP ───────────────────────────────────────
+   Los navegadores bloquean llamadas directas a FMP desde páginas web
+   por la política CORS. Usamos proxies públicos que reenvían la
+   petición desde un servidor (sin restricciones de CORS).
+
+   Intentamos los proxies en orden; si uno falla pasamos al siguiente.
+   Esto misma estrategia la usamos ya para Yahoo Finance.
+
+   PROXIES DISPONIBLES:
+   1. allorigins.win  — proxy CORS gratuito y fiable
+   2. corsproxy.io    — alternativa si allorigins falla
+   3. Directo         — último intento sin proxy (puede funcionar en
+                        algunos entornos como Node o Electron)
+*/
+const FMP_PROXIES = [
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u => u,   /* intento directo — último recurso */
+];
+
 async function fmpFetch(url) {
-  try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) {
-      console.warn(`[FMP] HTTP ${r.status} → ${url}`);
-      return null;
+  for (const makeProxy of FMP_PROXIES) {
+    const proxied = makeProxy(url);
+    try {
+      console.log(`[FMP] fetch → ${proxied.slice(0, 80)}...`);
+      const r = await fetchWithTimeout(proxied, 12000);
+
+      if (!r.ok) {
+        console.warn(`[FMP] HTTP ${r.status} (proxy: ${proxied.slice(0,40)})`);
+        continue; /* probar siguiente proxy */
+      }
+
+      const json = await r.json();
+
+      /* FMP devuelve un objeto con "Error Message" cuando:
+         - La API key es inválida
+         - El endpoint requiere un plan de pago
+         - El ticker no existe */
+      if (json?.['Error Message'] || json?.error) {
+        console.warn(`[FMP] Error API:`, json?.['Error Message'] || json?.error);
+        return null; /* error de API — no tiene sentido probar otro proxy */
+      }
+
+      return json; /* éxito */
+
+    } catch (e) {
+      console.warn(`[FMP] Error con proxy ${proxied.slice(0,40)}:`, e.message);
+      /* continuar con siguiente proxy */
     }
-    const json = await r.json();
-    /* FMP devuelve { "Error Message": "..." } cuando la key es inválida
-       o el endpoint requiere plan de pago */
-    if (json?.['Error Message'] || json?.error) {
-      console.warn(`[FMP] Error en respuesta:`, json?.['Error Message'] || json?.error);
-      return null;
-    }
-    return json;
-  } catch (e) {
-    console.warn(`[FMP] Timeout/red → ${url}:`, e.message);
-    return null;
   }
+  console.error(`[FMP] Todos los proxies fallaron para: ${url}`);
+  return null;
 }
 
 /* Obtiene todos los fundamentales de FMP para un ticker usando los
