@@ -841,100 +841,217 @@ function setStatus(state) {
 /* ══════════════════════════════════════════════════════════════════
    ██  FINANCIAL MODELING PREP (FMP) — FUNDAMENTALES
    ══════════════════════════════════════════════════════════════════
-   Usamos 4 endpoints de FMP por ticker:
+   ENDPOINTS USADOS (todos disponibles en plan GRATUITO):
 
-   1. /v3/profile/{ticker}
-      Devuelve: sector, country, mktCap, lastDiv, pe, eps, price
-      → Perfil completo de la empresa
+   1. /v3/quote/{ticker}
+      → price, changesPercentage, pe, eps, earningsAnnouncement
+      → ¡El endpoint más completo del plan free!
+      → Incluye: precio, P/E, EPS, market cap, volumen, 52w high/low
 
-   2. /v4/price-target-consensus/{ticker}
-      Devuelve: targetMedianPrice (mediana del consenso de analistas)
+   2. /v3/profile/{ticker}
+      → sector, country, companyName, description, website
+      → Perfil de la empresa (sector y geografía para los clusters)
 
-   3. /v3/key-metrics-ttm/{ticker}
-      Devuelve: roeTTM, pegRatioTTM, peRatioTTM, epsBasicTTM
-      TTM = Trailing Twelve Months (últimos 12 meses)
+   3. /v3/ratios-ttm/{ticker}
+      → dividendYielPercentageTTM, peRatioTTM, returnOnEquityTTM,
+        priceEarningsToGrowthRatioTTM, netProfitMarginTTM
+      → Ratios financieros de los últimos 12 meses
+      → DISPONIBLE en plan free (a diferencia de key-metrics-ttm)
 
-   4. /v3/historical-price-full/{ticker}?from=YYYY-01-02&to=YYYY-01-02
-      Devuelve: precio de cierre del inicio de año para calcular YTD
+   4. /v3/historical-price-full/{ticker}?from=YYYY-01-03&to=YYYY-01-07
+      → Precios históricos del inicio del año para calcular YTD
+      → Pedimos una semana entera por si el 2 de enero es feriado
 
-   Todas las llamadas se hacen en paralelo con Promise.all().
-   Luego esperamos 300ms entre tickers para respetar el rate limit.
+   NOTA sobre endpoints que NO funcionan en plan free:
+   - /v4/price-target-consensus → requiere plan de pago
+   - /v3/key-metrics-ttm        → requiere plan de pago
+   - /v3/analyst-estimates       → requiere plan de pago
 
-   COSTE DE API: 4 llamadas × número de tickers
-   Con 4 tickers: 16 calls → dentro del límite gratuito de 250/día
+   COSTE: 4 llamadas × número de tickers
+   Con 4 tickers: 16 calls/día → muy dentro del límite de 250/día
 */
 async function fetchFundamentals(ticker) {
   const key = getFmpKey();
   if (!key) return null;
 
-  const BASE      = 'https://financialmodelingprep.com/api';
-  const yearStart = new Date().getFullYear() + '-01-02'; /* 2 de enero (primer día hábil típico) */
+  const BASE = 'https://financialmodelingprep.com/api';
+  const year = new Date().getFullYear();
+  /* Pedimos del 3 al 7 de enero para capturar el primer día hábil
+     aunque el 2 sea feriado en algunos mercados */
+  const ytdFrom = `${year}-01-03`;
+  const ytdTo   = `${year}-01-07`;
 
-  try {
-    /* Lanzamos las 4 peticiones en paralelo para ahorrar tiempo */
-    const [profileRes, targetRes, metricsRes, ytdRes] = await Promise.all([
-      fetch(`${BASE}/v3/profile/${ticker}?apikey=${key}`).then(r => r.json()),
-      fetch(`${BASE}/v4/price-target-consensus/${ticker}?apikey=${key}`).then(r => r.json()),
-      fetch(`${BASE}/v3/key-metrics-ttm/${ticker}?apikey=${key}`).then(r => r.json()),
-      fetch(`${BASE}/v3/historical-price-full/${ticker}?from=${yearStart}&to=${yearStart}&apikey=${key}`).then(r => r.json()),
-    ]);
+  /* Función auxiliar: hace fetch y devuelve el JSON, o {} si falla */
+  const safeFetch = async (url) => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) {
+        console.warn(`FMP ${r.status} para ${url}`);
+        return null;
+      }
+      return await r.json();
+    } catch (e) {
+      console.warn(`FMP timeout/error para ${url}:`, e.message);
+      return null;
+    }
+  };
 
-    const profile = profileRes?.[0] || {};
-    const target  = targetRes?.[0]  || {};
-    const metrics = metricsRes?.[0] || {};
+  /* Lanzar las 4 llamadas en paralelo */
+  const [quoteRes, profileRes, ratiosRes, ytdRes] = await Promise.all([
+    safeFetch(`${BASE}/v3/quote/${ticker}?apikey=${key}`),
+    safeFetch(`${BASE}/v3/profile/${ticker}?apikey=${key}`),
+    safeFetch(`${BASE}/v3/ratios-ttm/${ticker}?apikey=${key}`),
+    safeFetch(`${BASE}/v3/historical-price-full/${ticker}?from=${ytdFrom}&to=${ytdTo}&apikey=${key}`),
+  ]);
 
-    /* YTD: comparamos precio actual con el cierre del 1 de enero */
-    const ytdPrice    = ytdRes?.historical?.[0]?.close || null;
-    const currentPx   = profile.price || null;
-    const ytdChange   = (ytdPrice && currentPx)
-      ? ((currentPx - ytdPrice) / ytdPrice) * 100
-      : null;
+  /* Extraer datos — el quote es un array, tomamos el primer elemento */
+  const quote   = Array.isArray(quoteRes)   ? (quoteRes[0]   || {}) : {};
+  const profile = Array.isArray(profileRes) ? (profileRes[0] || {}) : {};
+  const ratios  = Array.isArray(ratiosRes)  ? (ratiosRes[0]  || {}) : {};
 
-    return {
-      sector:      profile.sector       || '—',
-      country:     profile.country      || '—',
-      lastDiv:     profile.lastDiv      || 0,       /* dividendo anual $/acción */
-      pe:          profile.pe           || metrics.peRatioTTM  || null,
-      eps:         profile.eps          || metrics.epsBasicTTM || null,
-      mktCap:      profile.mktCap       || null,
-      description: profile.description  || '',      /* descripción de la empresa */
-      targetPrice: target.targetMedianPrice         || null,
-      roe:         metrics.roeTTM       || null,    /* decimal: 0.15 = 15% */
-      peg:         metrics.pegRatioTTM  || null,
-      ytdChange,
-      ytdBasePrice: ytdPrice,
-    };
-  } catch (e) {
-    console.error(`FMP error ${ticker}:`, e);
-    return null;
-  }
+  /* Debug: muestra en consola lo que llegó de FMP para cada ticker.
+     Abre DevTools (F12) → Console para verlo. */
+  console.group(`FMP datos para ${ticker}`);
+  console.log('quote:',   quote);
+  console.log('profile:', profile);
+  console.log('ratios:',  ratios);
+  console.log('ytd raw:', ytdRes);
+  console.groupEnd();
+
+  /* YTD: tomamos el cierre más antiguo del rango (primera semana de enero)
+     como precio de referencia del inicio de año */
+  const ytdHistory = ytdRes?.historical || [];
+  /* historical viene ordenado DESC (más reciente primero), tomamos el último */
+  const ytdPrice   = ytdHistory.length > 0
+    ? ytdHistory[ytdHistory.length - 1].close
+    : null;
+  const currentPx  = quote.price || profile.price || null;
+  const ytdChange  = (ytdPrice && currentPx)
+    ? ((currentPx - ytdPrice) / ytdPrice) * 100
+    : null;
+
+  /* ROE viene como decimal en ratios-ttm: 0.1543 = 15.43%
+     Lo guardamos en decimal y lo multiplicamos por 100 al mostrar */
+  const roe = ratios.returnOnEquityTTM || null;
+
+  /* Dividendo: ratios-ttm trae dividendYielPercentageTTM (en %, no decimal)
+     Para calcular div/acción: yield% × precio / 100 */
+  const divYieldPct = ratios.dividendYielPercentageTTM || null;
+  const divPerShare = (divYieldPct && currentPx)
+    ? (divYieldPct / 100) * currentPx
+    : (profile.lastDiv || 0);
+
+  return {
+    /* Identificación */
+    sector:      profile.sector       || quote.sector || '—',
+    country:     profile.country      || '—',
+    description: profile.description  || '',
+
+    /* Precio y valoración (del quote — el más fiable en plan free) */
+    pe:          quote.pe             || ratios.peRatioTTM || null,
+    eps:         quote.eps            || null,
+    mktCap:      quote.marketCap      || null,
+
+    /* Dividendo */
+    lastDiv:     divPerShare,
+    divYieldPct: divYieldPct,
+
+    /* No disponible en plan free — dejamos null */
+    targetPrice: null,
+
+    /* Ratios TTM */
+    roe:         roe,
+    peg:         ratios.priceEarningsToGrowthRatioTTM || null,
+    netMargin:   ratios.netProfitMarginTTM || null,
+
+    /* YTD */
+    ytdChange,
+    ytdBasePrice: ytdPrice,
+
+    /* Extra del quote útil para análisis IA */
+    yearHigh:    quote.yearHigh  || null,
+    yearLow:     quote.yearLow   || null,
+    avgVolume:   quote.avgVolume || null,
+    sharesOut:   quote.sharesOutstanding || null,
+  };
+}
+
+/* ── PANEL DE DEBUG ──────────────────────────────────────────────
+   Muestra en la barra de estado qué datos llegaron realmente de FMP.
+   Útil para diagnosticar qué endpoints funcionan con tu plan.
+   Se oculta después de 8 segundos.
+*/
+function showFmpDebug(results) {
+  const lines = Object.entries(results).map(([ticker, d]) => {
+    if (!d) return `${ticker}: ❌ sin datos`;
+    const items = [
+      d.sector  !== '—' ? `sector ✓` : `sector ✗`,
+      d.pe      != null ? `P/E ✓`    : `P/E ✗`,
+      d.eps     != null ? `EPS ✓`    : `EPS ✗`,
+      d.roe     != null ? `ROE ✓`    : `ROE ✗`,
+      d.peg     != null ? `PEG ✓`    : `PEG ✗`,
+      d.ytdChange != null ? `YTD ✓`  : `YTD ✗`,
+    ];
+    return `${ticker}: ${items.join(' · ')}`;
+  });
+  const el = document.getElementById('statusText');
+  el.innerHTML = lines.map(l =>
+    l.includes('✗') ? `<span style="color:var(--accent3)">${l}</span>` : l
+  ).join(' &nbsp;|&nbsp; ');
 }
 
 /* Itera sobre el portafolio y llama a fetchFundamentals() para cada ticker */
 async function fetchAllFundamentals() {
   if (!getFmpKey()) { showToast('⚠ Pega tu FMP API key primero'); return; }
 
+  /* Limpiar caché anterior para forzar datos frescos */
+  fundamentals = {};
+
   document.getElementById('fundStatus').textContent = 'cargando...';
   document.getElementById('fundStatus').style.color = 'var(--accent3)';
-  document.getElementById('statusText').textContent = 'Obteniendo fundamentales de FMP...';
+  document.getElementById('statusText').textContent = 'Conectando con FMP...';
   setStatus('cargando');
 
+  const debugResults = {};
   let ok = 0;
+
   for (const h of portfolio) {
+    document.getElementById('statusText').textContent =
+      `Obteniendo ${h.ticker} (${ok + 1}/${portfolio.length})...`;
+
     const data = await fetchFundamentals(h.ticker);
-    if (data) { fundamentals[h.ticker] = data; ok++; }
-    /* 300ms entre llamadas para no saturar el rate limit de FMP */
-    await new Promise(r => setTimeout(r, 300));
+
+    if (data) {
+      fundamentals[h.ticker] = data;
+      debugResults[h.ticker] = data;
+      ok++;
+    } else {
+      debugResults[h.ticker] = null;
+    }
+
+    /* 400ms entre tickers para respetar el rate limit de FMP */
+    await new Promise(r => setTimeout(r, 400));
   }
 
   save();
   const ts = new Date().toLocaleTimeString('es-ES');
-  document.getElementById('fundStatus').textContent = `${ok}/${portfolio.length} actualizados · ${ts}`;
-  document.getElementById('fundStatus').style.color = 'var(--accent2)';
-  document.getElementById('statusText').textContent = `Fundamentales cargados (${ok} tickers)`;
+  document.getElementById('fundStatus').textContent =
+    `${ok}/${portfolio.length} actualizados · ${ts}`;
+  document.getElementById('fundStatus').style.color =
+    ok > 0 ? 'var(--accent2)' : 'var(--danger)';
   document.getElementById('lastUpdate').textContent = ts;
   setStatus(ok > 0 ? 'live' : 'warn');
+
+  /* Mostrar diagnóstico de qué campos llegaron */
+  showFmpDebug(debugResults);
+
   renderAll();
+
+  if (ok === 0) {
+    showToast('⚠ FMP no devolvió datos. Verifica tu API key en la consola (F12)', 6000);
+  } else {
+    showToast(`✅ ${ok} tickers actualizados desde FMP`);
+  }
 }
 
 
@@ -1650,6 +1767,16 @@ function showToast(msg, duration = 3000) {
 /* Restaurar la FMP key guardada en sesiones anteriores */
 const savedKey = localStorage.getItem('depot_fmp_key');
 if (savedKey) document.getElementById('fmpKey').value = savedKey;
+
+/* Detectar y limpiar caché de fundamentales vacía (de versiones anteriores
+   que usaban endpoints de pago que no devolvían datos en el plan free).
+   Si todos los tickers tienen sector '—', los datos están vacíos → limpiar. */
+const cachedFunds = Object.values(fundamentals);
+if (cachedFunds.length > 0 && cachedFunds.every(f => !f || f.sector === '—')) {
+  console.log('[depot] Caché de fundamentales vacía detectada → limpiando');
+  fundamentals = {};
+  localStorage.removeItem('depot_fundamentals');
+}
 
 /* Renderizar la interfaz con los datos del localStorage */
 renderAll();
